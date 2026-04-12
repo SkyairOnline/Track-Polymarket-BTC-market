@@ -1,34 +1,33 @@
 """
-Monitors trades by a specific wallet address on Polymarket.
-Polls the CLOB API every 15s for new trades in the current market.
+Monitors trades by a specific wallet using the Polymarket Data API.
+CLOB /trades requires auth; Data API /activity is public and returns all needed fields.
 """
 
 import asyncio
 import logging
-from typing import Callable, Set, Optional
+from typing import Callable, Optional, Set
+from datetime import datetime, timezone
 import aiohttp
-from config import CLOB_BASE
 
-log = logging.getLogger(__name__)
-
+DATA_BASE = "https://data-api.polymarket.com"
 TRADER_ADDRESS = "0x7347d3291b321d2ee8d43d24aff244e7fb8c3d35"
 POLL_INTERVAL = 15  # seconds
+
+log = logging.getLogger(__name__)
 
 
 class TraderMonitor:
     def __init__(self, callback: Callable):
-        self._callback = callback  # async fn(trade, role, outcome)
+        self._callback = callback  # async fn(trade_row: dict)
         self._condition_id: Optional[str] = None
-        self._up_token_id: Optional[str] = None
-        self._down_token_id: Optional[str] = None
+        self._market_slug: Optional[str] = None
         self._seen: Set[str] = set()
         self._running = False
 
-    def set_market(self, condition_id: str, up_token_id: str, down_token_id: str) -> None:
+    def set_market(self, condition_id: str, market_slug: str, up_token_id: str = "", down_token_id: str = "") -> None:
         self._condition_id = condition_id
-        self._up_token_id = up_token_id
-        self._down_token_id = down_token_id
-        # Don't clear _seen — prevents reprocessing trades from previous markets
+        self._market_slug = market_slug
+        log.info(f"[Trader] Watching condition_id={condition_id[:16]}... slug={market_slug}")
 
     async def run(self) -> None:
         self._running = True
@@ -42,35 +41,56 @@ class TraderMonitor:
         self._running = False
 
     async def _poll(self, session: aiohttp.ClientSession) -> None:
-        for token_id in (self._up_token_id, self._down_token_id):
-            if not token_id:
-                continue
-            for addr_field in ("maker_address", "taker_address"):
-                trades = await self._fetch(session, addr_field, token_id)
-                for trade in trades:
-                    tx = trade.get("transaction_hash") or trade.get("id", "")
-                    if not tx or tx in self._seen:
-                        continue
-                    if trade.get("market") != self._condition_id:
-                        continue
-                    self._seen.add(tx)
-                    role = "maker" if addr_field == "maker_address" else "taker"
-                    # Determine outcome from which token was traded
-                    outcome = "Up" if trade.get("asset_id") == self._up_token_id else "Down"
-                    await self._callback(trade, role, outcome)
-
-    async def _fetch(self, session: aiohttp.ClientSession, addr_field: str, token_id: str) -> list:
         try:
-            params = {addr_field: TRADER_ADDRESS, "asset_id": token_id, "limit": 50}
+            params = {"user": TRADER_ADDRESS, "limit": 100}
             async with session.get(
-                f"{CLOB_BASE}/trades",
+                f"{DATA_BASE}/activity",
                 params=params,
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as r:
                 if r.status != 200:
-                    return []
-                data = await r.json()
-                return data.get("data", []) if isinstance(data, dict) else (data or [])
+                    log.warning(f"[Trader] activity API returned {r.status}")
+                    return
+                activities = await r.json()
         except Exception as e:
-            log.warning(f"[Trader] fetch error ({addr_field}): {e}")
-            return []
+            log.warning(f"[Trader] poll error: {e}")
+            return
+
+        if not isinstance(activities, list):
+            log.warning(f"[Trader] unexpected response shape: {type(activities)}")
+            return
+
+        new_count = 0
+        for act in activities:
+            # Only process actual trades for the current market
+            if act.get("type") != "TRADE":
+                continue
+            if act.get("conditionId") != self._condition_id:
+                continue
+
+            tx = act.get("transactionHash", "")
+            if not tx or tx in self._seen:
+                continue
+            self._seen.add(tx)
+
+            # Normalise into a clean row dict
+            ts_unix = act.get("timestamp", 0)
+            ts = datetime.fromtimestamp(ts_unix, tz=timezone.utc).isoformat()
+
+            trade_row = {
+                "market_slug": self._market_slug,
+                "ts": ts,
+                "side": act.get("side", "BUY"),           # "BUY" or "SELL"
+                "outcome": act.get("outcome", "Unknown"),  # "Up", "Down", "Yes", "No"
+                "price": float(act.get("price", 0)),
+                "size": float(act.get("usdcSize", act.get("size", 0))),  # prefer USDC size
+                "transaction_hash": tx,
+                "role": "activity",  # data API doesn't distinguish maker/taker
+            }
+            await self._callback(trade_row)
+            new_count += 1
+
+        if new_count:
+            log.info(f"[Trader] {new_count} new trade(s) recorded in {self._market_slug}")
+        else:
+            log.debug(f"[Trader] polled — no new trades in current market")

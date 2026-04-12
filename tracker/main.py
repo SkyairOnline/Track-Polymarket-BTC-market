@@ -124,7 +124,7 @@ async def transition_loop():
                 _last_up = _last_down = None
                 insert_market(next_market)
                 await _tracker.switch_market(next_market.up_token_id, next_market.down_token_id)
-                _trader_monitor.set_market(next_market.condition_id, next_market.up_token_id, next_market.down_token_id)
+                _trader_monitor.set_market(next_market.condition_id, next_market.slug)
                 _market = next_market
                 log.info(f"Market OPEN: {_market.slug}  (ends {_market.end_time})")
 
@@ -150,16 +150,15 @@ def _parse_end_time(end_time: str) -> datetime:
         return datetime.fromisoformat(s[:19] + "+00:00")
 
 
-async def on_trader_trade(trade: dict, role: str, outcome: str) -> None:
-    ts = trade.get("match_time") or trade.get("created_at") or datetime.now(timezone.utc).isoformat()
-    side = trade.get("side", "BUY")
-    price = float(trade.get("price", 0))
-    size = float(trade.get("size", 0))
-    tx_hash = trade.get("transaction_hash", "")
-    log.info(f"  TRADER: {side:4s} {outcome:4s} @ {price:.3f}  size={size:.1f}  [{role}]")
+async def on_trader_trade(trade: dict) -> None:
+    log.info(
+        f"  TRADER: {trade['side']:4s} {trade['outcome']:4s} "
+        f"@ {trade['price']:.3f}  size={trade['size']:.2f} USDC"
+    )
     asyncio.get_event_loop().run_in_executor(
         None, insert_trader_trade,
-        _market.slug, ts, side, outcome, price, size, tx_hash, role
+        trade["market_slug"], trade["ts"], trade["side"], trade["outcome"],
+        trade["price"], trade["size"], trade["transaction_hash"], trade["role"],
     )
 
 
@@ -203,7 +202,7 @@ async def main():
     )
 
     _trader_monitor = TraderMonitor(callback=on_trader_trade)
-    _trader_monitor.set_market(_market.condition_id, _market.up_token_id, _market.down_token_id)
+    _trader_monitor.set_market(_market.condition_id, _market.slug)
     log.info(f"Trader monitor active for: {_market.condition_id[:16]}...")
 
     signal.signal(signal.SIGINT, _handle_shutdown)
