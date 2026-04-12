@@ -25,10 +25,10 @@ class AnomalyCalculator:
         have touched the threshold. >= threshold means the side is priced at
         that confidence level or higher (e.g., 0.60 = 60% probability).
 
-        Guard: only count if combined best ask < 1.10 (market is liquid/fair).
-        When combined >= 1.10 the spread is too wide — the crossing is noise, not signal.
+        Guard: only count if combined best ask < 1.06 (market is liquid/fair).
+        When combined >= 1.05 the spread is too wide — the crossing is noise, not signal.
         """
-        if up_ask + down_ask >= 1.10:
+        if up_ask + down_ask >= 1.06:
             return []
 
         events = []
