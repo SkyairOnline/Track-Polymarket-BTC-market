@@ -26,7 +26,7 @@ from db import insert_market, insert_snapshot, insert_anomaly, insert_trader_tra
 from trader_monitor import TraderMonitor
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s  %(levelname)-7s  %(message)s",
     datefmt="%H:%M:%S",
     handlers=[logging.StreamHandler(sys.stdout)],

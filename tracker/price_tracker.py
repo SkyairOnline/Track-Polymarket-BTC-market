@@ -127,8 +127,10 @@ class PriceTracker:
             return
 
         if etype == "book":
-            asks = event.get("asks") or []
-            bids = event.get("bids") or []
+            # Polymarket WS uses "asks"/"bids" or "sells"/"buys" depending on version
+            asks = event.get("asks") or event.get("sells") or []
+            bids = event.get("bids") or event.get("buys") or []
+            log.debug(f"[WS book] asset={asset_id[:12]} keys={list(event.keys())} asks={len(asks)} bids={len(bids)}")
             prices = {
                 "best_ask":  _best_ask(asks),
                 "worst_ask": _worst_ask(asks),
@@ -137,6 +139,8 @@ class PriceTracker:
             }
             if any(v is not None for v in prices.values()):
                 await self._update(asset_id, prices, "ws_book")
+            else:
+                log.warning(f"[WS book] all prices None for {asset_id[:12]} — raw event: {str(event)[:300]}")
         elif etype in ("price_change", "best_bid_ask", "tick"):
             asyncio.create_task(self._fetch_book(asset_id))
 
@@ -156,8 +160,9 @@ class PriceTracker:
                         return
                     data = await r.json()
 
-            asks = data.get("asks", [])
-            bids = data.get("bids", [])
+            asks = data.get("asks") or []
+            bids = data.get("bids") or []
+            log.debug(f"[REST book] token={token_id[:12]} asks={len(asks)} bids={len(bids)} keys={list(data.keys())}")
 
             prices = {
                 "best_ask":  _best_ask(asks),
@@ -169,6 +174,8 @@ class PriceTracker:
             # Only update if we got at least one real value
             if any(v is not None for v in prices.values()):
                 await self._update(token_id, prices, source="rest_book")
+            else:
+                log.warning(f"[REST book] all prices None for {token_id[:12]} — raw: {str(data)[:300]}")
 
         except Exception as e:
             log.warning(f"[Book] fetch error for {token_id[:12]}: {e}")
