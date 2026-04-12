@@ -45,43 +45,45 @@ _last_up_ask: float = None
 _last_down_ask: float = None
 
 
-async def on_price(up_ask: float, up_bid: float, down_ask: float, down_bid: float, source: str):
+async def on_price(up: dict, down: dict, source: str):
+    """
+    up/down dicts: best_ask, worst_ask, best_bid, worst_bid
+    Anomaly logic runs on best_ask (most conservative / cheapest to buy).
+    """
     global _last_up_ask, _last_down_ask
 
-    # Skip duplicate readings (bid changes alone still warrant a new snapshot)
+    up_ask   = up["best_ask"]
+    down_ask = down["best_ask"]
+
+    # Skip pure duplicates on best ask (bids/worst may still have changed — still record)
     if up_ask == _last_up_ask and down_ask == _last_down_ask:
         return
     _last_up_ask, _last_down_ask = up_ask, down_ask
 
     ts = datetime.now(timezone.utc).isoformat()
 
-    # Write snapshot (non-blocking via thread)
     asyncio.get_event_loop().run_in_executor(
-        None, insert_snapshot, _market.slug, ts, up_ask, up_bid, down_ask, down_bid, source
+        None, insert_snapshot, _market.slug, ts, up, down, source
     )
 
-    # Check anomalies (in-memory, instant)
     events = _calc.check(up_ask, down_ask)
     for e in events:
-        log.info(
-            f"  ANOMALY [{e.threshold}¢]  {e.side:4s} @ {e.price:.3f}"
-            f"  (count={e.count})"
-        )
+        log.info(f"  ANOMALY [{e.threshold}¢]  {e.side:4s} @ {e.price:.3f}  (count={e.count})")
         asyncio.get_event_loop().run_in_executor(
             None, insert_anomaly, _market.slug, ts, e.threshold, e.side, e.price, e.count
         )
     if events:
-        counts = _calc.get_counts()
         asyncio.get_event_loop().run_in_executor(
-            None, update_market_counts, _market.slug, counts
+            None, update_market_counts, _market.slug, _calc.get_counts()
         )
 
-    # Live price line
     counts = _calc.get_counts()
-    sides = _calc.get_last_sides()
     log.info(
-        f"  [{source[:2].upper()}]  UP ask={up_ask:.3f} bid={up_bid:.3f}"
-        f"  DOWN ask={down_ask:.3f} bid={down_bid:.3f}"
+        f"  [{source[:4].upper()}]"
+        f"  UP  best_ask={up_ask:.3f}  worst_ask={up['worst_ask']:.3f}"
+        f"  best_bid={up['best_bid']:.3f}  worst_bid={up['worst_bid']:.3f}"
+        f"  | DOWN best_ask={down_ask:.3f}  worst_ask={down['worst_ask']:.3f}"
+        f"  best_bid={down['best_bid']:.3f}  worst_bid={down['worst_bid']:.3f}"
         f"  | a60={counts[60]} a70={counts[70]} a80={counts[80]} a90={counts[90]}"
     )
 

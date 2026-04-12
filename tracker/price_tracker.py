@@ -9,12 +9,21 @@ from config import WS_URL, CLOB_BASE, WS_PING_INTERVAL, REST_POLL_INTERVAL
 
 log = logging.getLogger(__name__)
 
+# Keys stored per token
+_BOOK_KEYS = ("best_ask", "worst_ask", "best_bid", "worst_bid")
+
 
 class PriceTracker:
     """
-    Tracks best ask AND best bid for UP and DOWN tokens via WebSocket.
-    Falls back to REST polling on disconnect, reconnects in background.
-    Callback: async fn(up_ask, up_bid, down_ask, down_bid, source)
+    Tracks all 4 price points per token: best ask, worst ask, best bid, worst bid.
+
+    Strategy:
+      - WebSocket notifies us when the orderbook changes (fast).
+      - On each WS event we fire GET /book for that token (source of truth for all 4 values).
+      - REST /book fallback when WS is down.
+
+    Callback: async fn(up: dict, down: dict, source: str)
+      up/down dicts have keys: best_ask, worst_ask, best_bid, worst_bid
     """
 
     def __init__(self, up_token_id: str, down_token_id: str, callback: Callable):
@@ -22,12 +31,15 @@ class PriceTracker:
         self._down_id = down_token_id
         self._callback = callback
         self._running = False
-        self._up_ask:  Optional[float] = None
-        self._up_bid:  Optional[float] = None
-        self._down_ask: Optional[float] = None
-        self._down_bid: Optional[float] = None
         self._switch_tokens: Optional[Tuple[str, str]] = None
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
+        self._book: dict = self._empty_book()
+
+    def _empty_book(self) -> dict:
+        return {
+            self._up_id:   {k: None for k in _BOOK_KEYS},
+            self._down_id: {k: None for k in _BOOK_KEYS},
+        }
 
     # ------------------------------------------------------------------
     # Public API
@@ -39,7 +51,7 @@ class PriceTracker:
             try:
                 await self._ws_session()
             except Exception as e:
-                log.warning(f"[WS] session ended ({e}), falling back to REST for 10s")
+                log.warning(f"[WS] session ended ({e}), switching to REST polling")
                 await self._rest_fallback(duration=10)
 
     def stop(self):
@@ -51,15 +63,15 @@ class PriceTracker:
             await self._ws.close()
 
     # ------------------------------------------------------------------
-    # WebSocket session
+    # WebSocket
     # ------------------------------------------------------------------
 
     async def _ws_session(self):
         if self._switch_tokens:
             self._up_id, self._down_id = self._switch_tokens
             self._switch_tokens = None
-            self._up_ask = self._up_bid = self._down_ask = self._down_bid = None
-            log.info(f"[WS] Switched tokens -> up={self._up_id[:12]}... down={self._down_id[:12]}...")
+            self._book = self._empty_book()
+            log.info(f"[WS] Switched tokens — up={self._up_id[:12]}... down={self._down_id[:12]}...")
 
         log.info(f"[WS] Connecting to {WS_URL}")
         async with websockets.connect(WS_URL, ping_interval=None) as ws:
@@ -100,36 +112,25 @@ class PriceTracker:
         if isinstance(messages, dict):
             messages = [messages]
         for msg in messages:
-            await self._process_event(msg)
+            await self._on_ws_event(msg)
 
-    async def _process_event(self, event: dict):
+    async def _on_ws_event(self, event: dict):
+        """
+        WS tells us *something changed*. Immediately fetch /book to get the
+        precise full orderbook (all 4 price points) for that token.
+        """
         etype = event.get("event_type") or event.get("type") or ""
         asset_id = event.get("asset_id") or event.get("token_id") or ""
 
-        if etype == "book":
-            ask = _best_ask(event.get("asks", []))
-            # WS book events only have asks, no bids — fetch bids via REST async
-            await self._update(asset_id, ask=ask, bid=None, source="websocket")
-            # Queue a REST /book call to get the full orderbook with bids
-            asyncio.create_task(self._fetch_bids_for_token(asset_id))
+        if etype in ("book", "price_change", "best_bid_ask", "tick"):
+            if asset_id in (self._up_id, self._down_id):
+                asyncio.create_task(self._fetch_book(asset_id))
 
-        elif etype in ("price_change", "best_bid_ask", "tick"):
-            ask = event.get("best_ask")
-            bid = event.get("best_bid")
-            # Fallback: parse from nested orderbook arrays if fields absent
-            if ask is None:
-                ask = _best_ask(event.get("asks", []))
-            if bid is None:
-                bid = _best_bid(event.get("bids", []))
-            await self._update(
-                asset_id,
-                ask=float(ask) if ask is not None else None,
-                bid=float(bid) if bid is not None else None,
-                source="websocket",
-            )
+    # ------------------------------------------------------------------
+    # REST /book — primary source for all 4 price points
+    # ------------------------------------------------------------------
 
-    async def _fetch_bids_for_token(self, token_id: str):
-        """Fetch full orderbook from REST /book to get bid side."""
+    async def _fetch_book(self, token_id: str):
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
@@ -140,86 +141,76 @@ class PriceTracker:
                     if r.status != 200:
                         return
                     data = await r.json()
-                    bid = _best_bid(data.get("bids", []))
-                    if bid is not None:
-                        await self._update(token_id, ask=None, bid=bid, source="rest_book")
-        except Exception:
-            pass  # Silent fail — bids are nice-to-have
 
-    async def _update(self, asset_id: str, ask: Optional[float], bid: Optional[float], source: str):
-        if asset_id == self._up_id:
-            if ask is not None: self._up_ask = ask
-            if bid is not None: self._up_bid = bid
-        elif asset_id == self._down_id:
-            if ask is not None: self._down_ask = ask
-            if bid is not None: self._down_bid = bid
-        else:
-            return  # unrelated token
+            asks = data.get("asks", [])
+            bids = data.get("bids", [])
 
-        # Fire callback only once all four values are known
-        if None not in (self._up_ask, self._up_bid, self._down_ask, self._down_bid):
-            await self._callback(
-                self._up_ask, self._up_bid,
-                self._down_ask, self._down_bid,
-                source,
-            )
+            prices = {
+                "best_ask":  _best_ask(asks),
+                "worst_ask": _worst_ask(asks),
+                "best_bid":  _best_bid(bids),
+                "worst_bid": _worst_bid(bids),
+            }
+
+            # Only update if we got at least one real value
+            if any(v is not None for v in prices.values()):
+                await self._update(token_id, prices, source="rest_book")
+
+        except Exception as e:
+            log.warning(f"[Book] fetch error for {token_id[:12]}: {e}")
+
+    async def _update(self, token_id: str, prices: dict, source: str):
+        if token_id not in self._book:
+            return
+        for k, v in prices.items():
+            if v is not None:
+                self._book[token_id][k] = v
+
+        # Fire callback when both tokens have all 4 values
+        up = self._book[self._up_id]
+        dn = self._book[self._down_id]
+        if all(up[k] is not None for k in _BOOK_KEYS) and \
+           all(dn[k] is not None for k in _BOOK_KEYS):
+            await self._callback(dict(up), dict(dn), source)
 
     # ------------------------------------------------------------------
-    # REST fallback
+    # REST fallback (WS down)
     # ------------------------------------------------------------------
 
     async def _rest_fallback(self, duration: float = float("inf")):
         log.info("[REST] Starting fallback polling")
         deadline = asyncio.get_event_loop().time() + duration
-        async with aiohttp.ClientSession() as session:
-            while self._running and not self._switch_tokens:
-                if asyncio.get_event_loop().time() >= deadline:
-                    break
-                try:
-                    up_ask  = await _rest_price(session, self._up_id,   "sell")
-                    up_bid  = await _rest_price(session, self._up_id,   "buy")
-                    dn_ask  = await _rest_price(session, self._down_id, "sell")
-                    dn_bid  = await _rest_price(session, self._down_id, "buy")
-                    if None not in (up_ask, up_bid, dn_ask, dn_bid):
-                        self._up_ask, self._up_bid = up_ask, up_bid
-                        self._down_ask, self._down_bid = dn_ask, dn_bid
-                        await self._callback(up_ask, up_bid, dn_ask, dn_bid, "rest")
-                except Exception as e:
-                    log.warning(f"[REST] poll error: {e}")
-                await asyncio.sleep(REST_POLL_INTERVAL)
+        while self._running and not self._switch_tokens:
+            if asyncio.get_event_loop().time() >= deadline:
+                break
+            await self._fetch_book(self._up_id)
+            await self._fetch_book(self._down_id)
+            await asyncio.sleep(REST_POLL_INTERVAL)
 
 
 # ------------------------------------------------------------------
-# Helpers
+# Helpers — extract price points from orderbook arrays
 # ------------------------------------------------------------------
+
+def _prices(entries: list) -> list[float]:
+    return [float(e["price"]) for e in entries if float(e.get("size", 0)) > 0]
+
 
 def _best_ask(asks: list) -> Optional[float]:
-    """Lowest ask price with positive size."""
-    try:
-        prices = [float(a["price"]) for a in asks if float(a.get("size", 0)) > 0]
-        return min(prices) if prices else None
-    except Exception:
-        return None
+    p = _prices(asks)
+    return min(p) if p else None
+
+
+def _worst_ask(asks: list) -> Optional[float]:
+    p = _prices(asks)
+    return max(p) if p else None
 
 
 def _best_bid(bids: list) -> Optional[float]:
-    """Highest bid price with positive size."""
-    try:
-        prices = [float(b["price"]) for b in bids if float(b.get("size", 0)) > 0]
-        return max(prices) if prices else None
-    except Exception:
-        return None
+    p = _prices(bids)
+    return max(p) if p else None
 
 
-async def _rest_price(session: aiohttp.ClientSession, token_id: str, side: str) -> Optional[float]:
-    """side: 'sell' for best ask, 'buy' for best bid."""
-    async with session.get(
-        f"{CLOB_BASE}/price",
-        params={"token_id": token_id, "side": side},
-        timeout=aiohttp.ClientTimeout(total=5),
-    ) as r:
-        if r.status != 200:
-            return None
-        data = await r.json()
-        price = data.get("price")
-        return float(price) if price is not None else None
+def _worst_bid(bids: list) -> Optional[float]:
+    p = _prices(bids)
+    return min(p) if p else None

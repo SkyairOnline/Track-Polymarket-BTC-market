@@ -24,19 +24,23 @@ def insert_market(market) -> None:
 
 def insert_snapshot(
     market_slug: str, ts: str,
-    up_ask: float, up_bid: float,
-    down_ask: float, down_bid: float,
+    up: dict, down: dict,
     source: str,
 ) -> None:
+    """up/down dicts: best_ask, worst_ask, best_bid, worst_bid"""
     try:
         _client.table("price_snapshots").insert({
-            "market_slug": market_slug,
-            "ts": ts,
-            "up_best_ask": up_ask,
-            "up_best_bid": up_bid,
-            "down_best_ask": down_ask,
-            "down_best_bid": down_bid,
-            "source": source,
+            "market_slug":    market_slug,
+            "ts":             ts,
+            "up_best_ask":    up.get("best_ask"),
+            "up_worst_ask":   up.get("worst_ask"),
+            "up_best_bid":    up.get("best_bid"),
+            "up_worst_bid":   up.get("worst_bid"),
+            "down_best_ask":  down.get("best_ask"),
+            "down_worst_ask": down.get("worst_ask"),
+            "down_best_bid":  down.get("best_bid"),
+            "down_worst_bid": down.get("worst_bid"),
+            "source":         source,
         }).execute()
     except Exception as e:
         log.error(f"[DB] insert_snapshot failed: {e}")
