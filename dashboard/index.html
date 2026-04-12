@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Polymarket BTC 5m Tracker</title>
+  <script src="config.js"></script>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
@@ -143,10 +144,8 @@
 <div class="status-bar">Last update: <span id="status">connecting...</span></div>
 
 <script>
-  const SUPABASE_URL  = 'https://mswexiqrcduxypevjgot.supabase.co';
-  const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1zd2V4aXFyY2R1eHlwZXZqZ290Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5MjQ0NzIsImV4cCI6MjA5MTUwMDQ3Mn0.vTuh3KmchQsz-_Rc9MyDDyv8C1oyGUmGq4fDNTDQ7mM';
   const { createClient } = supabase;
-  const db = createClient(SUPABASE_URL, SUPABASE_ANON);
+  const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   // ── Chart setup ───────────────────────────────────────────
   const LC = LightweightCharts;
@@ -388,8 +387,8 @@
     const counts = Object.fromEntries((summary || []).map(r => [r.market_slug, r]));
     tbody.innerHTML = markets.map(m => {
       const c = counts[m.slug] || {};
-      return `<tr>
-        <td>${m.active ? '<span class="active-dot"></span>' : ''}${m.slug}</td>
+      return `<tr style="cursor:pointer" onclick="window.location='market.html?slug=${m.slug}'">
+        <td>${m.active ? '<span class="active-dot"></span>' : ''}<a style="color:inherit;text-decoration:none" href="market.html?slug=${m.slug}">${m.slug}</a></td>
         <td>${c.anomaly_60 ?? '—'}</td>
         <td>${c.anomaly_70 ?? '—'}</td>
         <td>${c.anomaly_80 ?? '—'}</td>

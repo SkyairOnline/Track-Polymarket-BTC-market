@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Market Detail — Polymarket BTC 5m</title>
+  <script src="config.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'SF Mono', 'Fira Code', monospace; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; padding: 20px; }
+
+    /* ── Nav ── */
+    .nav { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+    .back { font-size: 0.75rem; color: #555; text-decoration: none; padding: 5px 12px; border: 1px solid #2a2a2a; border-radius: 6px; transition: color .15s, border-color .15s; }
+    .back:hover { color: #aaa; border-color: #444; }
+    .nav-slug { font-size: 1rem; color: #fff; }
+    .nav-meta { font-size: 0.72rem; color: #444; margin-left: auto; }
+    .status-badge { font-size: 0.65rem; padding: 3px 10px; border-radius: 20px; background: #1a1a1a; border: 1px solid #2a2a2a; color: #888; }
+    .status-badge.live { border-color: #3ecf8e44; color: #3ecf8e; }
+
+    /* ── Summary row ── */
+    .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+    .stat-card { background: #111; border: 1px solid #1e1e1e; border-radius: 8px; padding: 14px 16px; text-align: center; }
+    .stat-card .lbl { font-size: 0.6rem; text-transform: uppercase; color: #444; margin-bottom: 6px; }
+    .stat-card .val { font-size: 1.6rem; font-weight: 700; color: #fff; }
+    .stat-card .sub { font-size: 0.65rem; color: #333; margin-top: 3px; }
+
+    /* ── Chart ── */
+    #chart-wrap { background: #0f0f0f; border: 1px solid #1e1e1e; border-radius: 10px; padding: 14px 14px 0; margin-bottom: 16px; }
+    #chart-legend { display: flex; gap: 18px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; color: #555; }
+    .legend-dot { width: 10px; height: 2px; border-radius: 1px; }
+    .legend-dot.yes { background: #3ecf8e; }
+    .legend-dot.no  { background: #f04040; }
+    #chart { width: 100%; height: 380px; }
+
+    /* ── Panels ── */
+    .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .full { grid-column: 1 / -1; }
+    .card { background: #111; border: 1px solid #1e1e1e; border-radius: 10px; padding: 16px 20px; }
+    .card h2 { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.12em; color: #444; margin-bottom: 14px; }
+
+    /* ── Tables ── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    th { font-size: 0.6rem; text-transform: uppercase; color: #3a3a3a; padding: 0 8px 8px; text-align: left; }
+    td { padding: 7px 8px; }
+    tr:not(:last-child) td { border-bottom: 1px solid #161616; }
+    .badge { display: inline-block; background: #1e1e1e; border-radius: 4px; padding: 2px 8px; font-size: 0.75rem; }
+    .count { font-weight: 700; font-size: 1.05rem; color: #fff; }
+    .side-up { color: #3ecf8e; } .side-down { color: #f04040; } .side-none { color: #333; }
+
+    /* ── Timeline ── */
+    .timeline { max-height: 280px; overflow-y: auto; }
+    .tl-item { display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid #161616; }
+    .tl-item:last-child { border-bottom: none; }
+    .tl-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+    .tl-dot.anomaly { background: #f0a500; }
+    .tl-dot.trade-buy  { background: #3ecf8e; }
+    .tl-dot.trade-sell { background: #888; }
+    .tl-time { font-size: 0.68rem; color: #444; width: 68px; flex-shrink: 0; }
+    .tl-body { font-size: 0.75rem; }
+    .tl-body .tl-tag { font-size: 0.6rem; padding: 1px 6px; border-radius: 3px; margin-right: 6px; }
+    .tl-tag.anomaly { background: #f0a50022; color: #f0a500; }
+    .tl-tag.trade { background: #3ecf8e22; color: #3ecf8e; }
+    .tl-tag.trade-sell { background: #88888822; color: #888; }
+
+    /* ── Scrollable tables ── */
+    .scroll-wrap { max-height: 260px; overflow-y: auto; }
+    .scroll-wrap table th { position: sticky; top: 0; background: #111; }
+
+    /* ── Empty ── */
+    .empty { color: #2a2a2a; font-size: 0.75rem; padding: 10px 0; }
+
+    #loading { color: #333; font-size: 0.8rem; margin-top: 40px; }
+  </style>
+</head>
+<body>
+
+<div class="nav">
+  <a class="back" href="index.html">← Back</a>
+  <span class="nav-slug" id="nav-slug">Loading...</span>
+  <span class="status-badge" id="status-badge">—</span>
+  <span class="nav-meta" id="nav-meta"></span>
+</div>
+
+<!-- Anomaly summary stats -->
+<div class="summary">
+  <div class="stat-card"><div class="lbl">60¢ Reversals</div><div class="val" id="s60">—</div><div class="sub">anomaly count</div></div>
+  <div class="stat-card"><div class="lbl">70¢ Reversals</div><div class="val" id="s70">—</div><div class="sub">anomaly count</div></div>
+  <div class="stat-card"><div class="lbl">80¢ Reversals</div><div class="val" id="s80">—</div><div class="sub">anomaly count</div></div>
+  <div class="stat-card"><div class="lbl">90¢ Reversals</div><div class="val" id="s90">—</div><div class="sub">anomaly count</div></div>
+</div>
+
+<!-- Chart -->
+<div id="chart-wrap">
+  <div id="chart-legend">
+    <div class="legend-item"><div class="legend-dot yes"></div> YES (Up) best ask</div>
+    <div class="legend-item"><div class="legend-dot no"></div> NO (Down) best ask</div>
+    <div class="legend-item"><span style="font-size:.8rem;color:#00ff88">▲</span>&nbsp;Trader BUY</div>
+    <div class="legend-item"><span style="font-size:.8rem;color:#ff8800">▼</span>&nbsp;Trader SELL</div>
+    <div class="legend-item"><span style="font-size:.8rem;color:#f0a500">◆</span>&nbsp;Anomaly event</div>
+    <div class="legend-item" style="margin-left:auto;font-size:0.6rem;color:#2a2a2a">step-line · no smoothing</div>
+  </div>
+  <div id="chart"></div>
+</div>
+
+<div class="panels">
+
+  <!-- Anomaly counts -->
+  <div class="card">
+    <h2>Anomaly Counts</h2>
+    <table>
+      <thead><tr><th>Threshold</th><th>Count</th><th>Last Side</th></tr></thead>
+      <tbody id="anomaly-body"><tr><td colspan="3" class="empty">Loading...</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- Trader trades -->
+  <div class="card">
+    <h2>Trader Activity — 0x7347d3...8c3d35</h2>
+    <div class="scroll-wrap">
+      <table>
+        <thead><tr><th>Time</th><th>Side</th><th>Outcome</th><th>Price</th><th>Size</th></tr></thead>
+        <tbody id="trader-body"><tr><td colspan="5" class="empty">No trades</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Combined event timeline -->
+  <div class="card full">
+    <h2>Event Timeline — anomalies + trader trades, chronological</h2>
+    <div class="timeline" id="timeline"><div class="empty">Loading...</div></div>
+  </div>
+
+</div>
+
+<script>
+  const { createClient } = supabase;
+  const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const LC = LightweightCharts;
+
+  // ── Read slug from URL ─────────────────────────────────────
+  const slug = new URLSearchParams(window.location.search).get('slug');
+  if (!slug) { document.body.innerHTML = '<p style="padding:40px;color:#f04040">No slug provided. <a href="index.html" style="color:#3ecf8e">← Back</a></p>'; throw new Error('no slug'); }
+
+  // ── Chart ─────────────────────────────────────────────────
+  const chartEl = document.getElementById('chart');
+  const chart = LC.createChart(chartEl, {
+    width: chartEl.parentElement.clientWidth - 28,
+    height: 380,
+    layout: { background: { color: '#0f0f0f' }, textColor: '#666' },
+    grid: { vertLines: { color: '#141414' }, horzLines: { color: '#141414' } },
+    crosshair: { mode: LC.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: '#1e1e1e' },
+    timeScale: { borderColor: '#1e1e1e', timeVisible: true, secondsVisible: true },
+    handleScroll: true,
+    handleScale: true,
+  });
+  window.addEventListener('resize', () => chart.applyOptions({ width: chartEl.parentElement.clientWidth - 28 }));
+
+  const upSeries = chart.addLineSeries({
+    color: '#3ecf8e', lineWidth: 1, lineType: LC.LineType.WithSteps,
+    title: 'YES', lastValueVisible: true, priceLineVisible: false,
+  });
+  const downSeries = chart.addLineSeries({
+    color: '#f04040', lineWidth: 1, lineType: LC.LineType.WithSteps,
+    title: 'NO', lastValueVisible: true, priceLineVisible: false,
+  });
+
+  // ── Boot ──────────────────────────────────────────────────
+  async function boot() {
+    const [market, snapshots, anomalyEvents, traderTrades] = await Promise.all([
+      loadMarket(),
+      loadSnapshots(),
+      loadAnomalyEvents(),
+      loadTraderTrades(),
+    ]);
+
+    if (!market) {
+      document.body.innerHTML = `<p style="padding:40px;color:#f04040">Market not found: ${slug}. <a href="index.html" style="color:#3ecf8e">← Back</a></p>`;
+      return;
+    }
+
+    renderHeader(market);
+    renderChart(snapshots, traderTrades);
+    renderSummaryStats(anomalyEvents);
+    renderAnomalyTable(anomalyEvents);
+    renderTraderTable(traderTrades);
+    renderTimeline(anomalyEvents, traderTrades);
+
+    // Subscribe for live updates if this market is still active
+    if (market.active) subscribeRealtime();
+  }
+
+  // ── Data loaders ──────────────────────────────────────────
+  async function loadMarket() {
+    const { data } = await db.from('markets').select('*').eq('slug', slug).single();
+    return data;
+  }
+
+  async function loadSnapshots() {
+    const { data } = await db.from('price_snapshots')
+      .select('ts, up_best_ask, down_best_ask')
+      .eq('market_slug', slug)
+      .order('ts', { ascending: true })
+      .limit(2000);
+    return data || [];
+  }
+
+  async function loadAnomalyEvents() {
+    const { data } = await db.from('anomaly_events')
+      .select('*')
+      .eq('market_slug', slug)
+      .order('ts', { ascending: true });
+    return data || [];
+  }
+
+  async function loadTraderTrades() {
+    const { data } = await db.from('trader_trades')
+      .select('*')
+      .eq('market_slug', slug)
+      .order('ts', { ascending: true });
+    return data || [];
+  }
+
+  // ── Renders ───────────────────────────────────────────────
+  function renderHeader(m) {
+    document.title = `${m.slug} — Polymarket BTC 5m`;
+    document.getElementById('nav-slug').textContent = m.slug;
+    const badge = document.getElementById('status-badge');
+    badge.textContent = m.active ? '● LIVE' : '✓ Closed';
+    if (m.active) badge.classList.add('live');
+    document.getElementById('nav-meta').textContent =
+      `${new Date(m.end_time).toLocaleString()}`;
+  }
+
+  function renderChart(snapshots, traderTrades) {
+    if (!snapshots.length) return;
+
+    // Deduplicate by second
+    const upMap = new Map(), downMap = new Map();
+    for (const r of snapshots) {
+      const t = Math.floor(new Date(r.ts).getTime() / 1000);
+      upMap.set(t, parseFloat((r.up_best_ask   * 100).toFixed(2)));
+      downMap.set(t, parseFloat((r.down_best_ask * 100).toFixed(2)));
+    }
+    const sort = m => Array.from(m.entries()).sort((a, b) => a[0] - b[0]).map(([time, value]) => ({ time, value }));
+    upSeries.setData(sort(upMap));
+    downSeries.setData(sort(downMap));
+
+    // Trader trade markers
+    const tradeMarkers = traderTrades.map(t => {
+      const isBuy = t.side === 'BUY', isUp = t.outcome === 'Up';
+      return {
+        time: Math.floor(new Date(t.ts).getTime() / 1000),
+        position: isBuy ? 'belowBar' : 'aboveBar',
+        color: isBuy ? (isUp ? '#00ff88' : '#ff4444') : (isUp ? '#00994d' : '#994444'),
+        shape: isBuy ? 'arrowUp' : 'arrowDown',
+        text: `${t.side} ${t.outcome} ${(t.price * 100).toFixed(0)}¢`,
+        size: 1,
+      };
+    });
+
+    // Anomaly event markers (diamond shape = circle, positioned at mid-price)
+    // Show on upSeries as small circles with threshold label
+    const anomalyMarkers = [];
+    // Reload anomaly events for marker use
+    db.from('anomaly_events').select('ts, threshold, side, count').eq('market_slug', slug)
+      .order('ts', { ascending: true })
+      .then(({ data }) => {
+        if (!data?.length) return;
+        const aMarkers = data.map(e => ({
+          time: Math.floor(new Date(e.ts).getTime() / 1000),
+          position: e.side === 'Up' ? 'belowBar' : 'aboveBar',
+          color: '#f0a500',
+          shape: 'circle',
+          text: `A${e.threshold} ×${e.count}`,
+          size: 0.5,
+        }));
+        // Merge + sort all markers
+        const all = [...tradeMarkers, ...aMarkers].sort((a, b) => a.time - b.time);
+        upSeries.setMarkers(all);
+      });
+
+    // Set trade markers immediately (anomaly will be added async above)
+    const sortedTrades = [...tradeMarkers].sort((a, b) => a.time - b.time);
+    upSeries.setMarkers(sortedTrades);
+
+    chart.timeScale().fitContent();
+  }
+
+  function renderSummaryStats(events) {
+    const counts = { 60: 0, 70: 0, 80: 0, 90: 0 };
+    for (const e of events) counts[e.threshold] = Math.max(counts[e.threshold] || 0, e.count);
+    document.getElementById('s60').textContent = counts[60];
+    document.getElementById('s70').textContent = counts[70];
+    document.getElementById('s80').textContent = counts[80];
+    document.getElementById('s90').textContent = counts[90];
+  }
+
+  function renderAnomalyTable(events) {
+    const latest = {};
+    for (const e of events) latest[e.threshold] = e; // last row = highest count (asc order)
+    document.getElementById('anomaly-body').innerHTML = [60, 70, 80, 90].map(t => {
+      const e = latest[t];
+      const sc = !e ? 'side-none' : e.side === 'Up' ? 'side-up' : 'side-down';
+      return `<tr>
+        <td><span class="badge">${t}¢</span></td>
+        <td><span class="count">${e ? e.count : 0}</span></td>
+        <td><span class="${sc}">${e ? e.side : '—'}</span></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderTraderTable(trades) {
+    const tbody = document.getElementById('trader-body');
+    if (!trades.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">No trades</td></tr>'; return; }
+    tbody.innerHTML = [...trades].reverse().map(t => {
+      const isBuy = t.side === 'BUY', isUp = t.outcome === 'Up';
+      const color = isBuy ? (isUp ? '#3ecf8e' : '#f04040') : '#666';
+      return `<tr style="color:${color}">
+        <td>${new Date(t.ts).toLocaleTimeString()}</td>
+        <td><b>${t.side}</b></td>
+        <td>${t.outcome}</td>
+        <td>${(t.price * 100).toFixed(1)}¢</td>
+        <td>${parseFloat(t.size).toFixed(2)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderTimeline(anomalyEvents, traderTrades) {
+    const tl = document.getElementById('timeline');
+
+    // Merge events into one sorted list
+    const events = [
+      ...anomalyEvents.map(e => ({ ts: e.ts, type: 'anomaly', data: e })),
+      ...traderTrades.map(t => ({ ts: t.ts, type: 'trade',   data: t })),
+    ].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+
+    if (!events.length) { tl.innerHTML = '<div class="empty">No events yet</div>'; return; }
+
+    tl.innerHTML = events.map(({ ts, type, data }) => {
+      const time = new Date(ts).toLocaleTimeString();
+      let dotClass, tag, desc;
+
+      if (type === 'anomaly') {
+        dotClass = 'anomaly';
+        tag = `<span class="tl-tag anomaly">ANOMALY</span>`;
+        desc = `${data.threshold}¢ threshold — <b>${data.side}</b> side crossed (count ${data.count})`;
+      } else {
+        const isBuy = data.side === 'BUY';
+        dotClass = isBuy ? 'trade-buy' : 'trade-sell';
+        tag = `<span class="tl-tag ${isBuy ? 'trade' : 'trade-sell'}">${data.side}</span>`;
+        desc = `${data.outcome} @ ${(data.price * 100).toFixed(1)}¢ · size ${parseFloat(data.size).toFixed(2)} USDC (${data.role})`;
+      }
+
+      return `<div class="tl-item">
+        <div class="tl-dot ${dotClass}"></div>
+        <span class="tl-time">${time}</span>
+        <div class="tl-body">${tag}${desc}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Realtime (only for active markets) ───────────────────
+  let _anomalyEvents = [], _traderTrades = [];
+
+  function subscribeRealtime() {
+    db.from('anomaly_events').select('*').eq('market_slug', slug).order('ts', { ascending: true })
+      .then(({ data }) => { _anomalyEvents = data || []; });
+    db.from('trader_trades').select('*').eq('market_slug', slug).order('ts', { ascending: true })
+      .then(({ data }) => { _traderTrades = data || []; });
+
+    db.channel(`market-${slug}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'price_snapshots',
+          filter: `market_slug=eq.${slug}` }, ({ new: row }) => {
+        const t = Math.floor(new Date(row.ts).getTime() / 1000);
+        upSeries.update({ time: t, value: parseFloat((row.up_best_ask   * 100).toFixed(2)) });
+        downSeries.update({ time: t, value: parseFloat((row.down_best_ask * 100).toFixed(2)) });
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'anomaly_events',
+          filter: `market_slug=eq.${slug}` }, ({ new: row }) => {
+        _anomalyEvents.push(row);
+        renderSummaryStats(_anomalyEvents);
+        renderAnomalyTable(_anomalyEvents);
+        renderTimeline(_anomalyEvents, _traderTrades);
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'trader_trades',
+          filter: `market_slug=eq.${slug}` }, ({ new: row }) => {
+        _traderTrades.push(row);
+        renderTraderTable(_traderTrades);
+        renderTimeline(_anomalyEvents, _traderTrades);
+        // Rebuild markers with new trade
+        renderChart([], _traderTrades); // partial — just refresh markers
+      })
+      .subscribe();
+  }
+
+  boot();
+</script>
+</body>
+</html>
