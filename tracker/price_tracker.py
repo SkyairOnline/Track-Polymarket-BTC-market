@@ -108,8 +108,10 @@ class PriceTracker:
 
         if etype == "book":
             ask = _best_ask(event.get("asks", []))
-            bid = _best_bid(event.get("bids", []))
-            await self._update(asset_id, ask=ask, bid=bid, source="websocket")
+            # WS book events only have asks, no bids — fetch bids via REST async
+            await self._update(asset_id, ask=ask, bid=None, source="websocket")
+            # Queue a REST /book call to get the full orderbook with bids
+            asyncio.create_task(self._fetch_bids_for_token(asset_id))
 
         elif etype in ("price_change", "best_bid_ask", "tick"):
             ask = event.get("best_ask")
@@ -125,6 +127,24 @@ class PriceTracker:
                 bid=float(bid) if bid is not None else None,
                 source="websocket",
             )
+
+    async def _fetch_bids_for_token(self, token_id: str):
+        """Fetch full orderbook from REST /book to get bid side."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{CLOB_BASE}/book",
+                    params={"token_id": token_id},
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as r:
+                    if r.status != 200:
+                        return
+                    data = await r.json()
+                    bid = _best_bid(data.get("bids", []))
+                    if bid is not None:
+                        await self._update(token_id, ask=None, bid=bid, source="rest_book")
+        except Exception:
+            pass  # Silent fail — bids are nice-to-have
 
     async def _update(self, asset_id: str, ask: Optional[float], bid: Optional[float], source: str):
         if asset_id == self._up_id:
