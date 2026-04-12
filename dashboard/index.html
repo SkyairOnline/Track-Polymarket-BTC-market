@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Polymarket BTC 5m Anomaly Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      background: #0d0d0d;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    h1 { font-size: 1.1rem; color: #aaa; margin-bottom: 20px; letter-spacing: 0.08em; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      max-width: 860px;
+    }
+
+    .card {
+      background: #171717;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      padding: 18px 22px;
+    }
+
+    .card h2 {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #555;
+      margin-bottom: 14px;
+    }
+
+    /* Market info */
+    .market-slug { font-size: 1rem; color: #fff; margin-bottom: 6px; }
+    .market-meta { font-size: 0.75rem; color: #555; }
+    #countdown { display: inline-block; color: #f0a500; margin-left: 6px; }
+
+    /* Price boxes */
+    .prices { display: flex; gap: 12px; }
+    .price-box {
+      flex: 1;
+      background: #1e1e1e;
+      border-radius: 8px;
+      padding: 14px;
+      text-align: center;
+    }
+    .price-box .label { font-size: 0.65rem; color: #555; text-transform: uppercase; margin-bottom: 6px; }
+    .price-box .value { font-size: 1.6rem; font-weight: 700; }
+    .price-box.up .value { color: #3ecf8e; }
+    .price-box.down .value { color: #f04040; }
+    .price-box .sub { font-size: 0.68rem; color: #555; margin-top: 4px; }
+
+    /* Anomaly table */
+    .anomaly-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .anomaly-table th {
+      text-align: left;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      color: #555;
+      padding: 0 8px 8px;
+    }
+    .anomaly-table td { padding: 6px 8px; }
+    .anomaly-table tr:not(:last-child) td { border-bottom: 1px solid #222; }
+    .badge {
+      display: inline-block;
+      background: #252525;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 0.8rem;
+    }
+    .count { font-weight: 700; font-size: 1.1rem; color: #fff; }
+    .side-up { color: #3ecf8e; }
+    .side-down { color: #f04040; }
+    .side-none { color: #444; }
+
+    /* History table */
+    .history-wrap { grid-column: 1 / -1; max-height: 280px; overflow-y: auto; }
+    .history-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    .history-table th {
+      text-align: left;
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      color: #555;
+      padding: 0 10px 8px;
+      position: sticky;
+      top: 0;
+      background: #171717;
+    }
+    .history-table td { padding: 7px 10px; color: #aaa; }
+    .history-table tr:not(:last-child) td { border-bottom: 1px solid #1e1e1e; }
+    .history-table tr:first-child td { color: #fff; }
+    .active-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #3ecf8e; margin-right: 6px; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.3 } }
+
+    .status-bar { font-size: 0.68rem; color: #444; margin-top: 14px; }
+    #status { color: #555; }
+  </style>
+</head>
+<body>
+<h1>⬡ POLYMARKET · BTC 5M · ANOMALY TRACKER</h1>
+
+<div class="grid">
+
+  <!-- Current Market -->
+  <div class="card">
+    <h2>Current Market</h2>
+    <div class="market-slug" id="market-slug">—</div>
+    <div class="market-meta">
+      Ends <span id="market-end">—</span>
+      <span id="countdown"></span>
+    </div>
+  </div>
+
+  <!-- Live Prices -->
+  <div class="card">
+    <h2>Live Best Ask</h2>
+    <div class="prices">
+      <div class="price-box up">
+        <div class="label">YES (Up)</div>
+        <div class="value" id="up-price">—</div>
+        <div class="sub">best ask</div>
+      </div>
+      <div class="price-box down">
+        <div class="label">NO (Down)</div>
+        <div class="value" id="down-price">—</div>
+        <div class="sub">best ask</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Anomaly Counts -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>Anomaly Counts — current market</h2>
+    <table class="anomaly-table">
+      <thead>
+        <tr>
+          <th>Threshold</th>
+          <th>Count</th>
+          <th>Last Side</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody id="anomaly-body">
+        <tr><td colspan="4" style="color:#333; padding:10px">Waiting for data...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Market History -->
+  <div class="card history-wrap">
+    <h2>Market History</h2>
+    <table class="history-table">
+      <thead>
+        <tr>
+          <th>Market</th>
+          <th>60¢</th>
+          <th>70¢</th>
+          <th>80¢</th>
+          <th>90¢</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="history-body">
+        <tr><td colspan="6" style="color:#333">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<div class="status-bar">Last update: <span id="status">connecting...</span></div>
+
+<script>
+  const SUPABASE_URL  = 'https://mswexiqrcduxypevjgot.supabase.co';
+  const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1zd2V4aXFyY2R1eHlwZXZqZ290Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU5MjQ0NzIsImV4cCI6MjA5MTUwMDQ3Mn0.vTuh3KmchQsz-_Rc9MyDDyv8C1oyGUmGq4fDNTDQ7mM';
+
+  const { createClient } = supabase;
+  const db = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+  // ── State ────────────────────────────────────────────────
+  let activeMarket = null;
+  const anomalyState = { 60: { count: 0, side: null }, 70: { count: 0, side: null }, 80: { count: 0, side: null }, 90: { count: 0, side: null } };
+
+  // ── Boot ─────────────────────────────────────────────────
+  async function boot() {
+    await loadActiveMarket();
+    await loadHistory();
+    subscribeRealtime();
+    tickCountdown();
+  }
+
+  // ── Load Active Market ───────────────────────────────────
+  async function loadActiveMarket() {
+    const { data, error } = await db
+      .from('markets')
+      .select('*')
+      .eq('active', true)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (error || !data?.length) { setStatus('No active market found'); return; }
+    setActiveMarket(data[0]);
+    await loadLatestPrice();
+    await loadAnomalyEvents();
+  }
+
+  function setActiveMarket(m) {
+    activeMarket = m;
+    document.getElementById('market-slug').textContent = m.slug;
+    document.getElementById('market-end').textContent = new Date(m.end_time).toLocaleTimeString();
+    renderAnomalyTable();
+  }
+
+  // ── Latest Price ─────────────────────────────────────────
+  async function loadLatestPrice() {
+    if (!activeMarket) return;
+    const { data } = await db
+      .from('price_snapshots')
+      .select('up_best_ask, down_best_ask, ts')
+      .eq('market_slug', activeMarket.slug)
+      .order('ts', { ascending: false })
+      .limit(1);
+    if (data?.length) updatePriceDisplay(data[0]);
+  }
+
+  function updatePriceDisplay(row) {
+    document.getElementById('up-price').textContent   = (row.up_best_ask   * 100).toFixed(1) + '¢';
+    document.getElementById('down-price').textContent = (row.down_best_ask * 100).toFixed(1) + '¢';
+    setStatus(new Date(row.ts).toLocaleTimeString());
+  }
+
+  // ── Anomaly Events ───────────────────────────────────────
+  async function loadAnomalyEvents() {
+    if (!activeMarket) return;
+    const { data } = await db
+      .from('anomaly_events')
+      .select('threshold, side, count')
+      .eq('market_slug', activeMarket.slug)
+      .order('id', { ascending: false })
+      .limit(200);
+
+    if (!data?.length) return;
+
+    // Reset and replay to find latest count+side per threshold
+    const seen = {};
+    for (const row of data) {
+      if (!seen[row.threshold]) {
+        seen[row.threshold] = { count: row.count, side: row.side };
+      }
+    }
+    for (const t of [60, 70, 80, 90]) {
+      if (seen[t]) {
+        anomalyState[t].count = seen[t].count;
+        anomalyState[t].side  = seen[t].side;
+      }
+    }
+    renderAnomalyTable();
+  }
+
+  function renderAnomalyTable() {
+    const tbody = document.getElementById('anomaly-body');
+    const rows = [60, 70, 80, 90].map(t => {
+      const { count, side } = anomalyState[t];
+      const sideClass = side === 'Up' ? 'side-up' : side === 'Down' ? 'side-down' : 'side-none';
+      const sideLabel = side || '—';
+      const meaning = count === 0
+        ? 'No crossings yet'
+        : `Market reversed ${count}× past ${t}¢`;
+      return `<tr>
+        <td><span class="badge">${t}¢</span></td>
+        <td><span class="count">${count}</span></td>
+        <td><span class="${sideClass}">${sideLabel}</span></td>
+        <td style="color:#444">${meaning}</td>
+      </tr>`;
+    }).join('');
+    tbody.innerHTML = rows;
+  }
+
+  // ── History ───────────────────────────────────────────────
+  async function loadHistory() {
+    const { data } = await db
+      .from('markets')
+      .select('slug, active, anomaly_60, anomaly_70, anomaly_80, anomaly_90, end_time')
+      .order('window_ts', { ascending: false })
+      .limit(20);
+
+    const tbody = document.getElementById('history-body');
+    if (!data?.length) { tbody.innerHTML = '<tr><td colspan="6" style="color:#333">No history yet</td></tr>'; return; }
+
+    tbody.innerHTML = data.map(m => `
+      <tr>
+        <td>${m.active ? '<span class="active-dot"></span>' : ''}${m.slug}</td>
+        <td>${m.anomaly_60 ?? '—'}</td>
+        <td>${m.anomaly_70 ?? '—'}</td>
+        <td>${m.anomaly_80 ?? '—'}</td>
+        <td>${m.anomaly_90 ?? '—'}</td>
+        <td>${m.active ? '🟢 live' : '✓ closed'}</td>
+      </tr>`).join('');
+  }
+
+  // ── Realtime Subscriptions ────────────────────────────────
+  function subscribeRealtime() {
+    db.channel('tracker')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'price_snapshots' }, payload => {
+        if (activeMarket && payload.new.market_slug === activeMarket.slug) {
+          updatePriceDisplay(payload.new);
+        }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'anomaly_events' }, payload => {
+        const { threshold, side, count } = payload.new;
+        if (anomalyState[threshold] !== undefined) {
+          anomalyState[threshold].count = count;
+          anomalyState[threshold].side  = side;
+          renderAnomalyTable();
+          flashAlert(threshold, side, count);
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'markets' }, async () => {
+        await loadActiveMarket();
+        await loadHistory();
+      })
+      .subscribe(status => {
+        if (status === 'SUBSCRIBED') setStatus('realtime connected');
+      });
+  }
+
+  function flashAlert(threshold, side, count) {
+    const msg = `ANOMALY ${threshold}¢ — ${side} (count ${count})`;
+    const el = document.createElement('div');
+    el.textContent = msg;
+    el.style.cssText = 'position:fixed;top:20px;right:20px;background:#f0a500;color:#000;padding:10px 16px;border-radius:6px;font-size:0.8rem;font-weight:700;z-index:999;opacity:1;transition:opacity 2s';
+    document.body.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 2000); }, 3000);
+  }
+
+  // ── Countdown ─────────────────────────────────────────────
+  function tickCountdown() {
+    setInterval(() => {
+      if (!activeMarket) return;
+      const secs = Math.max(0, Math.round((new Date(activeMarket.end_time) - Date.now()) / 1000));
+      const m = Math.floor(secs / 60), s = secs % 60;
+      document.getElementById('countdown').textContent = `(${m}:${String(s).padStart(2,'0')} left)`;
+      if (secs === 0) setTimeout(loadActiveMarket, 5000); // refresh after boundary
+    }, 1000);
+  }
+
+  function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+  boot();
+</script>
+</body>
+</html>
