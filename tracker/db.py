@@ -62,6 +62,25 @@ def update_market_counts(slug: str, counts: dict) -> None:
         log.error(f"[DB] update_market_counts failed: {e}")
 
 
+def insert_trader_trade(
+    market_slug: str, ts: str, side: str, outcome: str,
+    price: float, size: float, tx_hash: str, role: str
+) -> None:
+    try:
+        _client.table("trader_trades").upsert({
+            "market_slug": market_slug,
+            "ts": ts,
+            "side": side,
+            "outcome": outcome,
+            "price": price,
+            "size": size,
+            "transaction_hash": tx_hash,
+            "role": role,
+        }, on_conflict="transaction_hash").execute()
+    except Exception as e:
+        log.error(f"[DB] insert_trader_trade failed: {e}")
+
+
 def update_market_final(slug: str, counts: dict, active: bool = False) -> None:
     try:
         _client.table("markets").update({

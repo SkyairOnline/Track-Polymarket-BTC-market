@@ -22,7 +22,8 @@ from config import TRANSITION_LEAD_TIME, TRANSITION_CHECK_INTERVAL
 from market_discovery import discover_current, discover_next, Market
 from price_tracker import PriceTracker
 from anomaly_calculator import AnomalyCalculator
-from db import insert_market, insert_snapshot, insert_anomaly, update_market_counts, update_market_final
+from db import insert_market, insert_snapshot, insert_anomaly, insert_trader_trade, update_market_counts, update_market_final
+from trader_monitor import TraderMonitor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +37,7 @@ log = logging.getLogger(__name__)
 _market: Market = None
 _calc = AnomalyCalculator()
 _tracker: PriceTracker = None
+_trader_monitor: TraderMonitor = None
 _shutdown = asyncio.Event()
 
 # Throttle snapshots: only write to DB when price changes
@@ -122,6 +124,7 @@ async def transition_loop():
                 _last_up = _last_down = None
                 insert_market(next_market)
                 await _tracker.switch_market(next_market.up_token_id, next_market.down_token_id)
+                _trader_monitor.set_market(next_market.condition_id, next_market.up_token_id, next_market.down_token_id)
                 _market = next_market
                 log.info(f"Market OPEN: {_market.slug}  (ends {_market.end_time})")
 
@@ -147,19 +150,34 @@ def _parse_end_time(end_time: str) -> datetime:
         return datetime.fromisoformat(s[:19] + "+00:00")
 
 
+async def on_trader_trade(trade: dict, role: str, outcome: str) -> None:
+    ts = trade.get("match_time") or trade.get("created_at") or datetime.now(timezone.utc).isoformat()
+    side = trade.get("side", "BUY")
+    price = float(trade.get("price", 0))
+    size = float(trade.get("size", 0))
+    tx_hash = trade.get("transaction_hash", "")
+    log.info(f"  TRADER: {side:4s} {outcome:4s} @ {price:.3f}  size={size:.1f}  [{role}]")
+    asyncio.get_event_loop().run_in_executor(
+        None, insert_trader_trade,
+        _market.slug, ts, side, outcome, price, size, tx_hash, role
+    )
+
+
 def _handle_shutdown(signum, frame):
     log.info("\nShutdown signal received — saving final state...")
     _shutdown.set()
     if _calc and _market:
         counts = _calc.get_counts()
-        update_market_final(_market.slug, counts, active=True)  # keep active=True, still recording
+        update_market_final(_market.slug, counts, active=True)
         log.info(f"Saved counts: {counts}")
     if _tracker:
         _tracker.stop()
+    if _trader_monitor:
+        _trader_monitor.stop()
 
 
 async def main():
-    global _market, _tracker
+    global _market, _tracker, _trader_monitor
 
     log.info("=" * 60)
     log.info("Polymarket BTC 5-Min Anomaly Tracker")
@@ -184,6 +202,10 @@ async def main():
         callback=on_price,
     )
 
+    _trader_monitor = TraderMonitor(callback=on_trader_trade)
+    _trader_monitor.set_market(_market.condition_id, _market.up_token_id, _market.down_token_id)
+    log.info(f"Trader monitor active for: {_market.condition_id[:16]}...")
+
     signal.signal(signal.SIGINT, _handle_shutdown)
     signal.signal(signal.SIGTERM, _handle_shutdown)
 
@@ -193,6 +215,7 @@ async def main():
         await asyncio.gather(
             _tracker.run(),
             transition_loop(),
+            _trader_monitor.run(),
         )
     except asyncio.CancelledError:
         pass
