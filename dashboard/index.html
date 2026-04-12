@@ -288,24 +288,29 @@
 
   // ── History ───────────────────────────────────────────────
   async function loadHistory() {
-    const { data } = await db
-      .from('markets')
-      .select('slug, active, anomaly_60, anomaly_70, anomaly_80, anomaly_90, end_time')
-      .order('window_ts', { ascending: false })
-      .limit(20);
-
     const tbody = document.getElementById('history-body');
-    if (!data?.length) { tbody.innerHTML = '<tr><td colspan="6" style="color:#333">No history yet</td></tr>'; return; }
 
-    tbody.innerHTML = data.map(m => `
-      <tr>
+    const [{ data: markets }, { data: summary }] = await Promise.all([
+      db.from('markets').select('slug, active, end_time').order('window_ts', { ascending: false }).limit(20),
+      db.from('market_anomaly_summary').select('*'),
+    ]);
+
+    if (!markets?.length) { tbody.innerHTML = '<tr><td colspan="6" style="color:#333">No history yet</td></tr>'; return; }
+
+    // Index summary by slug for O(1) lookup
+    const counts = Object.fromEntries((summary || []).map(r => [r.market_slug, r]));
+
+    tbody.innerHTML = markets.map(m => {
+      const c = counts[m.slug] || {};
+      return `<tr>
         <td>${m.active ? '<span class="active-dot"></span>' : ''}${m.slug}</td>
-        <td>${m.anomaly_60 ?? '—'}</td>
-        <td>${m.anomaly_70 ?? '—'}</td>
-        <td>${m.anomaly_80 ?? '—'}</td>
-        <td>${m.anomaly_90 ?? '—'}</td>
+        <td>${c.anomaly_60 ?? '—'}</td>
+        <td>${c.anomaly_70 ?? '—'}</td>
+        <td>${c.anomaly_80 ?? '—'}</td>
+        <td>${c.anomaly_90 ?? '—'}</td>
         <td>${m.active ? '🟢 live' : '✓ closed'}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
   }
 
   // ── Realtime Subscriptions ────────────────────────────────
