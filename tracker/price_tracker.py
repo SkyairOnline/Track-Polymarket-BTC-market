@@ -12,18 +12,20 @@ log = logging.getLogger(__name__)
 
 class PriceTracker:
     """
-    Tracks best ask prices for UP and DOWN tokens via WebSocket.
+    Tracks best ask AND best bid for UP and DOWN tokens via WebSocket.
     Falls back to REST polling on disconnect, reconnects in background.
+    Callback: async fn(up_ask, up_bid, down_ask, down_bid, source)
     """
 
     def __init__(self, up_token_id: str, down_token_id: str, callback: Callable):
         self._up_id = up_token_id
         self._down_id = down_token_id
-        self._callback = callback  # async fn(up_ask, down_ask, source)
+        self._callback = callback
         self._running = False
-        self._up_ask: Optional[float] = None
+        self._up_ask:  Optional[float] = None
+        self._up_bid:  Optional[float] = None
         self._down_ask: Optional[float] = None
-        # Set when switch_market() is called
+        self._down_bid: Optional[float] = None
         self._switch_tokens: Optional[Tuple[str, str]] = None
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
 
@@ -44,9 +46,7 @@ class PriceTracker:
         self._running = False
 
     async def switch_market(self, up_id: str, down_id: str):
-        """Signal the tracker to subscribe to new token IDs after the current market closes."""
         self._switch_tokens = (up_id, down_id)
-        # Close the WS connection so _ws_session restarts with new tokens
         if self._ws and not self._ws.closed:
             await self._ws.close()
 
@@ -55,12 +55,10 @@ class PriceTracker:
     # ------------------------------------------------------------------
 
     async def _ws_session(self):
-        # Apply any pending market switch before connecting
         if self._switch_tokens:
             self._up_id, self._down_id = self._switch_tokens
             self._switch_tokens = None
-            self._up_ask = None
-            self._down_ask = None
+            self._up_ask = self._up_bid = self._down_ask = self._down_bid = None
             log.info(f"[WS] Switched tokens -> up={self._up_id[:12]}... down={self._down_id[:12]}...")
 
         log.info(f"[WS] Connecting to {WS_URL}")
@@ -75,7 +73,6 @@ class PriceTracker:
             ping_task = asyncio.create_task(self._ping_loop(ws))
             try:
                 async for raw in ws:
-                    # Check for pending market switch mid-session
                     if self._switch_tokens:
                         break
                     await self._handle_raw(raw)
@@ -100,10 +97,8 @@ class PriceTracker:
             messages = json.loads(raw)
         except json.JSONDecodeError:
             return
-
         if isinstance(messages, dict):
             messages = [messages]
-
         for msg in messages:
             await self._process_event(msg)
 
@@ -112,40 +107,48 @@ class PriceTracker:
         asset_id = event.get("asset_id") or event.get("token_id") or ""
 
         if etype == "book":
-            asks = event.get("asks", [])
-            best_ask = _min_ask(asks)
-            if best_ask is not None:
-                await self._update(asset_id, best_ask, "websocket")
+            ask = _best_ask(event.get("asks", []))
+            bid = _best_bid(event.get("bids", []))
+            await self._update(asset_id, ask=ask, bid=bid, source="websocket")
 
         elif etype in ("price_change", "best_bid_ask", "tick"):
-            # price_change events from Polymarket include best_ask directly
-            best_ask = event.get("best_ask")
-            if best_ask is not None:
-                await self._update(asset_id, float(best_ask), "websocket")
-            else:
-                # Some events nest price data
-                asks = event.get("asks", [])
-                best_ask = _min_ask(asks)
-                if best_ask is not None:
-                    await self._update(asset_id, best_ask, "websocket")
+            ask = event.get("best_ask")
+            bid = event.get("best_bid")
+            # Fallback: parse from nested orderbook arrays if fields absent
+            if ask is None:
+                ask = _best_ask(event.get("asks", []))
+            if bid is None:
+                bid = _best_bid(event.get("bids", []))
+            await self._update(
+                asset_id,
+                ask=float(ask) if ask is not None else None,
+                bid=float(bid) if bid is not None else None,
+                source="websocket",
+            )
 
-    async def _update(self, asset_id: str, price: float, source: str):
+    async def _update(self, asset_id: str, ask: Optional[float], bid: Optional[float], source: str):
         if asset_id == self._up_id:
-            self._up_ask = price
+            if ask is not None: self._up_ask = ask
+            if bid is not None: self._up_bid = bid
         elif asset_id == self._down_id:
-            self._down_ask = price
+            if ask is not None: self._down_ask = ask
+            if bid is not None: self._down_bid = bid
         else:
             return  # unrelated token
 
-        if self._up_ask is not None and self._down_ask is not None:
-            await self._callback(self._up_ask, self._down_ask, source)
+        # Fire callback only once all four values are known
+        if None not in (self._up_ask, self._up_bid, self._down_ask, self._down_bid):
+            await self._callback(
+                self._up_ask, self._up_bid,
+                self._down_ask, self._down_bid,
+                source,
+            )
 
     # ------------------------------------------------------------------
     # REST fallback
     # ------------------------------------------------------------------
 
     async def _rest_fallback(self, duration: float = float("inf")):
-        """Poll REST until `duration` seconds have elapsed or WS reconnects."""
         log.info("[REST] Starting fallback polling")
         deadline = asyncio.get_event_loop().time() + duration
         async with aiohttp.ClientSession() as session:
@@ -153,12 +156,14 @@ class PriceTracker:
                 if asyncio.get_event_loop().time() >= deadline:
                     break
                 try:
-                    up = await _rest_price(session, self._up_id)
-                    down = await _rest_price(session, self._down_id)
-                    if up is not None and down is not None:
-                        self._up_ask = up
-                        self._down_ask = down
-                        await self._callback(up, down, "rest")
+                    up_ask  = await _rest_price(session, self._up_id,   "sell")
+                    up_bid  = await _rest_price(session, self._up_id,   "buy")
+                    dn_ask  = await _rest_price(session, self._down_id, "sell")
+                    dn_bid  = await _rest_price(session, self._down_id, "buy")
+                    if None not in (up_ask, up_bid, dn_ask, dn_bid):
+                        self._up_ask, self._up_bid = up_ask, up_bid
+                        self._down_ask, self._down_bid = dn_ask, dn_bid
+                        await self._callback(up_ask, up_bid, dn_ask, dn_bid, "rest")
                 except Exception as e:
                     log.warning(f"[REST] poll error: {e}")
                 await asyncio.sleep(REST_POLL_INTERVAL)
@@ -168,8 +173,8 @@ class PriceTracker:
 # Helpers
 # ------------------------------------------------------------------
 
-def _min_ask(asks: list) -> Optional[float]:
-    """Return the lowest ask price from an orderbook asks array."""
+def _best_ask(asks: list) -> Optional[float]:
+    """Lowest ask price with positive size."""
     try:
         prices = [float(a["price"]) for a in asks if float(a.get("size", 0)) > 0]
         return min(prices) if prices else None
@@ -177,10 +182,22 @@ def _min_ask(asks: list) -> Optional[float]:
         return None
 
 
-async def _rest_price(session: aiohttp.ClientSession, token_id: str) -> Optional[float]:
-    url = f"{CLOB_BASE}/price"
-    async with session.get(url, params={"token_id": token_id, "side": "sell"},
-                           timeout=aiohttp.ClientTimeout(total=5)) as r:
+def _best_bid(bids: list) -> Optional[float]:
+    """Highest bid price with positive size."""
+    try:
+        prices = [float(b["price"]) for b in bids if float(b.get("size", 0)) > 0]
+        return max(prices) if prices else None
+    except Exception:
+        return None
+
+
+async def _rest_price(session: aiohttp.ClientSession, token_id: str, side: str) -> Optional[float]:
+    """side: 'sell' for best ask, 'buy' for best bid."""
+    async with session.get(
+        f"{CLOB_BASE}/price",
+        params={"token_id": token_id, "side": side},
+        timeout=aiohttp.ClientTimeout(total=5),
+    ) as r:
         if r.status != 200:
             return None
         data = await r.json()

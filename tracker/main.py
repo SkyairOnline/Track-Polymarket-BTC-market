@@ -41,23 +41,23 @@ _trader_monitor: TraderMonitor = None
 _shutdown = asyncio.Event()
 
 # Throttle snapshots: only write to DB when price changes
-_last_up: float = None
-_last_down: float = None
+_last_up_ask: float = None
+_last_down_ask: float = None
 
 
-async def on_price(up_ask: float, down_ask: float, source: str):
-    global _last_up, _last_down
+async def on_price(up_ask: float, up_bid: float, down_ask: float, down_bid: float, source: str):
+    global _last_up_ask, _last_down_ask
 
-    # Skip duplicate readings to avoid DB spam
-    if up_ask == _last_up and down_ask == _last_down:
+    # Skip duplicate readings (bid changes alone still warrant a new snapshot)
+    if up_ask == _last_up_ask and down_ask == _last_down_ask:
         return
-    _last_up, _last_down = up_ask, down_ask
+    _last_up_ask, _last_down_ask = up_ask, down_ask
 
     ts = datetime.now(timezone.utc).isoformat()
 
     # Write snapshot (non-blocking via thread)
     asyncio.get_event_loop().run_in_executor(
-        None, insert_snapshot, _market.slug, ts, up_ask, down_ask, source
+        None, insert_snapshot, _market.slug, ts, up_ask, up_bid, down_ask, down_bid, source
     )
 
     # Check anomalies (in-memory, instant)
@@ -80,14 +80,14 @@ async def on_price(up_ask: float, down_ask: float, source: str):
     counts = _calc.get_counts()
     sides = _calc.get_last_sides()
     log.info(
-        f"  [{source[:2].upper()}]  UP={up_ask:.3f}  DOWN={down_ask:.3f}"
+        f"  [{source[:2].upper()}]  UP ask={up_ask:.3f} bid={up_bid:.3f}"
+        f"  DOWN ask={down_ask:.3f} bid={down_bid:.3f}"
         f"  | a60={counts[60]} a70={counts[70]} a80={counts[80]} a90={counts[90]}"
-        f"  | sides={sides}"
     )
 
 
 async def transition_loop():
-    global _market, _last_up, _last_down
+    global _market, _last_up_ask, _last_down_ask
 
     while not _shutdown.is_set():
         try:
@@ -121,7 +121,7 @@ async def transition_loop():
 
                 # Switch to next market
                 _calc.reset()
-                _last_up = _last_down = None
+                _last_up_ask = _last_down_ask = None
                 insert_market(next_market)
                 await _tracker.switch_market(next_market.up_token_id, next_market.down_token_id)
                 _trader_monitor.set_market(next_market.condition_id, next_market.slug)

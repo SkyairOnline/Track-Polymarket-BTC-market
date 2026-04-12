@@ -22,13 +22,20 @@ def insert_market(market) -> None:
         log.error(f"[DB] insert_market failed: {e}")
 
 
-def insert_snapshot(market_slug: str, ts: str, up_ask: float, down_ask: float, source: str) -> None:
+def insert_snapshot(
+    market_slug: str, ts: str,
+    up_ask: float, up_bid: float,
+    down_ask: float, down_bid: float,
+    source: str,
+) -> None:
     try:
         _client.table("price_snapshots").insert({
             "market_slug": market_slug,
             "ts": ts,
             "up_best_ask": up_ask,
+            "up_best_bid": up_bid,
             "down_best_ask": down_ask,
+            "down_best_bid": down_bid,
             "source": source,
         }).execute()
     except Exception as e:
