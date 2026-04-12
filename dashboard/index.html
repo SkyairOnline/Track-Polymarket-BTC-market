@@ -380,7 +380,7 @@
   async function loadHistory() {
     const tbody = document.getElementById('history-body');
     const [{ data: markets }, { data: summary }] = await Promise.all([
-      db.from('markets').select('slug, active, end_time').order('window_ts', { ascending: false }).limit(20),
+      db.from('markets').select('slug, active, end_time').order('window_ts', { ascending: false }).limit(100),
       db.from('market_anomaly_summary').select('*'),
     ]);
     if (!markets?.length) { tbody.innerHTML = '<tr><td colspan="6" style="color:#2a2a2a">No history yet</td></tr>'; return; }
