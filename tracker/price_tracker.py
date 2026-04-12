@@ -166,11 +166,11 @@ class PriceTracker:
             if v is not None:
                 self._book[token_id][k] = v
 
-        # Fire callback when both tokens have all 4 values
+        # Fire as soon as both tokens have at least a best_ask.
+        # Bid / worst values may be None (thin market) — store them as NULL in DB.
         up = self._book[self._up_id]
         dn = self._book[self._down_id]
-        if all(up[k] is not None for k in _BOOK_KEYS) and \
-           all(dn[k] is not None for k in _BOOK_KEYS):
+        if up["best_ask"] is not None and dn["best_ask"] is not None:
             await self._callback(dict(up), dict(dn), source)
 
     # ------------------------------------------------------------------

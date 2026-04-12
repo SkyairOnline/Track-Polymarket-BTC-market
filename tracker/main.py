@@ -78,12 +78,13 @@ async def on_price(up: dict, down: dict, source: str):
         )
 
     counts = _calc.get_counts()
+    def fmt(v): return f"{v:.3f}" if v is not None else "null"
     log.info(
         f"  [{source[:4].upper()}]"
-        f"  UP  best_ask={up_ask:.3f}  worst_ask={up['worst_ask']:.3f}"
-        f"  best_bid={up['best_bid']:.3f}  worst_bid={up['worst_bid']:.3f}"
-        f"  | DOWN best_ask={down_ask:.3f}  worst_ask={down['worst_ask']:.3f}"
-        f"  best_bid={down['best_bid']:.3f}  worst_bid={down['worst_bid']:.3f}"
+        f"  UP  ba={fmt(up['best_ask'])} wa={fmt(up['worst_ask'])}"
+        f"  bb={fmt(up['best_bid'])} wb={fmt(up['worst_bid'])}"
+        f"  | DOWN ba={fmt(down['best_ask'])} wa={fmt(down['worst_ask'])}"
+        f"  bb={fmt(down['best_bid'])} wb={fmt(down['worst_bid'])}"
         f"  | a60={counts[60]} a70={counts[70]} a80={counts[80]} a90={counts[90]}"
     )
 
