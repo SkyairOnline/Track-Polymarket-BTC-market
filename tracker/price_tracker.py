@@ -116,15 +116,29 @@ class PriceTracker:
 
     async def _on_ws_event(self, event: dict):
         """
-        WS tells us *something changed*. Immediately fetch /book to get the
-        precise full orderbook (all 4 price points) for that token.
+        WS `book` events carry the full orderbook snapshot — parse directly.
+        Other change events (`price_change`, `best_bid_ask`, `tick`) carry no
+        full depth; fall back to REST /book for those.
         """
         etype = event.get("event_type") or event.get("type") or ""
         asset_id = event.get("asset_id") or event.get("token_id") or ""
 
-        if etype in ("book", "price_change", "best_bid_ask", "tick"):
-            if asset_id in (self._up_id, self._down_id):
-                asyncio.create_task(self._fetch_book(asset_id))
+        if asset_id not in (self._up_id, self._down_id):
+            return
+
+        if etype == "book":
+            asks = event.get("asks") or []
+            bids = event.get("bids") or []
+            prices = {
+                "best_ask":  _best_ask(asks),
+                "worst_ask": _worst_ask(asks),
+                "best_bid":  _best_bid(bids),
+                "worst_bid": _worst_bid(bids),
+            }
+            if any(v is not None for v in prices.values()):
+                await self._update(asset_id, prices, "ws_book")
+        elif etype in ("price_change", "best_bid_ask", "tick"):
+            asyncio.create_task(self._fetch_book(asset_id))
 
     # ------------------------------------------------------------------
     # REST /book — primary source for all 4 price points
