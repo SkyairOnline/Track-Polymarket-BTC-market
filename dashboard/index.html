@@ -251,8 +251,8 @@
     // Deduplicate by second (chart requires strictly increasing time)
     const seen = new Map();
     for (const r of rows) {
-      const t = Math.floor(new Date(r.ts).getTime() / 1000);
-      seen.set(t, parseFloat((r[field] * 100).toFixed(2)));
+      const t = new Date(r.ts).getTime();
+      seen.set(t, parseFloat(r[field] * 100));
     }
     return Array.from(seen.entries())
       .sort((a, b) => a[0] - b[0])
@@ -260,7 +260,7 @@
   }
 
   function appendChartPoint(row) {
-    const t = Math.floor(new Date(row.ts).getTime() / 1000);
+    const t = new Date(row.ts).getTime();
     upSeries.update({ time: t, value: parseFloat((row.up_best_ask * 100).toFixed(2)) });
     downSeries.update({ time: t, value: parseFloat((row.down_best_ask * 100).toFixed(2)) });
   }
@@ -273,7 +273,7 @@
       const isBuy = t.side === 'BUY';
       const isUp  = t.outcome === 'Up';
       return {
-        time: Math.floor(new Date(t.ts).getTime() / 1000),
+        time: new Date(t.ts).getTime(),
         position: isBuy ? 'belowBar' : 'aboveBar',
         // BUY = bright (entry), SELL = muted (exit)
         // Up outcome = green family, Down outcome = red family

@@ -242,9 +242,9 @@
     // Deduplicate by second
     const upMap = new Map(), downMap = new Map();
     for (const r of snapshots) {
-      const t = Math.floor(new Date(r.ts).getTime() / 1000);
-      upMap.set(t, parseFloat((r.up_best_ask   * 100).toFixed(2)));
-      downMap.set(t, parseFloat((r.down_best_ask * 100).toFixed(2)));
+      const t = new Date(r.ts).getTime();
+      upMap.set(t, parseFloat(r.up_best_ask * 100));
+      downMap.set(t, parseFloat(r.down_best_ask * 100));
     }
     const sort = m => Array.from(m.entries()).sort((a, b) => a[0] - b[0]).map(([time, value]) => ({ time, value }));
     upSeries.setData(sort(upMap));
@@ -254,7 +254,7 @@
     const tradeMarkers = traderTrades.map(t => {
       const isBuy = t.side === 'BUY', isUp = t.outcome === 'Up';
       return {
-        time: Math.floor(new Date(t.ts).getTime() / 1000),
+        time: new Date(t.ts).getTime(),
         position: isBuy ? 'belowBar' : 'aboveBar',
         color: isBuy ? (isUp ? '#00ff88' : '#ff4444') : (isUp ? '#00994d' : '#994444'),
         shape: isBuy ? 'arrowUp' : 'arrowDown',
@@ -272,7 +272,7 @@
       .then(({ data }) => {
         if (!data?.length) return;
         const aMarkers = data.map(e => ({
-          time: Math.floor(new Date(e.ts).getTime() / 1000),
+          time: new Date(e.ts).getTime(),
           position: e.side === 'Up' ? 'belowBar' : 'aboveBar',
           color: '#f0a500',
           shape: 'circle',
@@ -376,9 +376,9 @@
     db.channel(`market-${slug}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'price_snapshots',
           filter: `market_slug=eq.${slug}` }, ({ new: row }) => {
-        const t = Math.floor(new Date(row.ts).getTime() / 1000);
-        upSeries.update({ time: t, value: parseFloat((row.up_best_ask   * 100).toFixed(2)) });
-        downSeries.update({ time: t, value: parseFloat((row.down_best_ask * 100).toFixed(2)) });
+        const t = new Date(row.ts).getTime();
+        upSeries.update({ time: t, value: parseFloat(row.up_best_ask   * 100) });
+        downSeries.update({ time: t, value: parseFloat(row.down_best_ask * 100) });
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'anomaly_events',
           filter: `market_slug=eq.${slug}` }, ({ new: row }) => {
