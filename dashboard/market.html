@@ -152,11 +152,19 @@
     height: 380,
     layout: { background: { color: '#0f0f0f' }, textColor: '#666' },
     grid: { vertLines: { color: '#141414' }, horzLines: { color: '#141414' } },
-    crosshair: { mode: LC.CrosshairMode.Normal },
-    rightPriceScale: { borderColor: '#1e1e1e' },
-    timeScale: { borderColor: '#1e1e1e', timeVisible: true, secondsVisible: true },
-    handleScroll: true,
-    handleScale: true,
+    timeScale: {
+      timeVisible: true,
+      secondsVisible: true,
+      tickMarkFormatter: (time) => {
+        const ms = Math.round((time % 1) * 1000);
+        const date = new Date(Math.floor(time) * 1000 + ms);
+        const h = String(date.getUTCHours()).padStart(2,'0');
+        const m = String(date.getUTCMinutes()).padStart(2,'0');
+        const s = String(date.getUTCSeconds()).padStart(2,'0');
+        const msStr = String(date.getUTCMilliseconds()).padStart(3,'0');
+        return `${h}:${m}:${s}.${msStr}`;
+      }
+    }
   });
   window.addEventListener('resize', () => chart.applyOptions({ width: chartEl.parentElement.clientWidth - 28 }));
 
@@ -242,7 +250,7 @@
     // Deduplicate by second
     const upMap = new Map(), downMap = new Map();
     for (const r of snapshots) {
-      const t = new Date(r.ts).getTime();
+      const t = new Date(r.ts).getTime()/1000;
       upMap.set(t, parseFloat(r.up_best_ask * 100));
       downMap.set(t, parseFloat(r.down_best_ask * 100));
     }
@@ -254,7 +262,7 @@
     const tradeMarkers = traderTrades.map(t => {
       const isBuy = t.side === 'BUY', isUp = t.outcome === 'Up';
       return {
-        time: new Date(t.ts).getTime(),
+        time: Math.floor(new Date(t.ts).getTime() / 1000),
         position: isBuy ? 'belowBar' : 'aboveBar',
         color: isBuy ? (isUp ? '#00ff88' : '#ff4444') : (isUp ? '#00994d' : '#994444'),
         shape: isBuy ? 'arrowUp' : 'arrowDown',
@@ -272,12 +280,12 @@
       .then(({ data }) => {
         if (!data?.length) return;
         const aMarkers = data.map(e => ({
-          time: new Date(e.ts).getTime(),
+          time: new Date(e.ts).getTime() / 1000,
           position: e.side === 'Up' ? 'belowBar' : 'aboveBar',
           color: '#f0a500',
           shape: 'circle',
           text: `A${e.threshold} ×${e.count}`,
-          size: 0.5,
+          size: 0.8,
         }));
         // Merge + sort all markers
         const all = [...tradeMarkers, ...aMarkers].sort((a, b) => a.time - b.time);
@@ -321,7 +329,7 @@
       const isBuy = t.side === 'BUY', isUp = t.outcome === 'Up';
       const color = isBuy ? (isUp ? '#3ecf8e' : '#f04040') : '#666';
       return `<tr style="color:${color}">
-        <td>${new Date(t.ts).toLocaleTimeString()}</td>
+        <td>${new Date(t.ts).toLocaleTimeString('en-US', {hour12:false})}</td>
         <td><b>${t.side}</b></td>
         <td>${t.outcome}</td>
         <td>${(t.price * 100).toFixed(1)}¢</td>
@@ -342,7 +350,7 @@
     if (!events.length) { tl.innerHTML = '<div class="empty">No events yet</div>'; return; }
 
     tl.innerHTML = events.map(({ ts, type, data }) => {
-      const time = new Date(ts).toLocaleTimeString();
+      const time = new Date(ev.ts).toLocaleTimeString('en-US', {hour12:false});
       let dotClass, tag, desc;
 
       if (type === 'anomaly') {
@@ -376,9 +384,10 @@
     db.channel(`market-${slug}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'price_snapshots',
           filter: `market_slug=eq.${slug}` }, ({ new: row }) => {
-        const t = new Date(row.ts).getTime();
-        upSeries.update({ time: t, value: parseFloat(row.up_best_ask   * 100) });
-        downSeries.update({ time: t, value: parseFloat(row.down_best_ask * 100) });
+        const tsMs = new Date(row.ts).getTime();
+        const time = tsMs / 1000;
+        upSeries.update({time, value: parseFloat((row.up_best_ask*100).toFixed(2))});
+        downSeries.update({time, value: parseFloat((row.down_best_ask*100).toFixed(2))});
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'anomaly_events',
           filter: `market_slug=eq.${slug}` }, ({ new: row }) => {

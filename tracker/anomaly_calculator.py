@@ -28,7 +28,7 @@ class AnomalyCalculator:
         Guard: only count if combined best ask < 1.09 (market is liquid/fair).
         When combined >= 1.09 the spread is too wide — the crossing is noise, not signal.
         """
-        if up_ask + down_ask >= 1.9:
+        if up_ask + down_ask >= 1.09:
             return []
 
         events = []

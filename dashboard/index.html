@@ -157,7 +157,23 @@
     grid: { vertLines: { color: '#141414' }, horzLines: { color: '#141414' } },
     crosshair: { mode: LC.CrosshairMode.Normal },
     rightPriceScale: { borderColor: '#1e1e1e' },
-    timeScale: { borderColor: '#1e1e1e', timeVisible: true, secondsVisible: true },
+    timeScale: {
+      borderColor: '#1e1e1e',
+      timeVisible: true,
+      secondsVisible: true,
+      // ← ADD THIS for milliseconds
+      tickMarkFormatter: (time, tickMarkType, locale) => {
+        const ms = Math.round((time % 1) * 1000);           // extract fractional part
+        const date = new Date(Math.floor(time) * 1000 + ms);
+        const hours = String(date.getUTCHours()).padStart(2, '0');
+        const mins  = String(date.getUTCMinutes()).padStart(2, '0');
+        const secs  = String(date.getUTCSeconds()).padStart(2, '0');
+        const millis = String(date.getUTCMilliseconds()).padStart(3, '0');
+
+        // Show HH:MM:SS.mmm when zoomed in enough
+        return `${hours}:${mins}:${secs}.${millis}`;
+      }
+    },
     handleScroll: true,
     handleScale: true,
   });
@@ -248,11 +264,13 @@
   }
 
   function toChartPoints(rows, field) {
-    // Deduplicate by second (chart requires strictly increasing time)
     const seen = new Map();
     for (const r of rows) {
-      const t = new Date(r.ts).getTime();
-      seen.set(t, parseFloat(r[field] * 100));
+      // Use full millisecond precision
+      const timestampMs = new Date(r.ts).getTime(); 
+      const timeInSeconds = timestampMs / 1000;   // Lightweight Charts expects seconds with decimal
+      
+      seen.set(timeInSeconds, parseFloat((r[field] * 100).toFixed(2)));
     }
     return Array.from(seen.entries())
       .sort((a, b) => a[0] - b[0])
@@ -260,9 +278,11 @@
   }
 
   function appendChartPoint(row) {
-    const t = new Date(row.ts).getTime();
-    upSeries.update({ time: t, value: parseFloat((row.up_best_ask * 100).toFixed(2)) });
-    downSeries.update({ time: t, value: parseFloat((row.down_best_ask * 100).toFixed(2)) });
+    const timestampMs = new Date(row.ts).getTime();
+    const time = timestampMs / 1000;
+
+    upSeries.update({ time: time, value: parseFloat((row.up_best_ask * 100).toFixed(2)) });
+    downSeries.update({ time: time, value: parseFloat((row.down_best_ask * 100).toFixed(2)) });
   }
 
   // ── Trade Markers ─────────────────────────────────────────
@@ -273,7 +293,7 @@
       const isBuy = t.side === 'BUY';
       const isUp  = t.outcome === 'Up';
       return {
-        time: new Date(t.ts).getTime(),
+        time: Math.floor(new Date(t.ts).getTime() / 1000),
         position: isBuy ? 'belowBar' : 'aboveBar',
         // BUY = bright (entry), SELL = muted (exit)
         // Up outcome = green family, Down outcome = red family
@@ -373,7 +393,12 @@
   function updatePriceDisplay(row) {
     document.getElementById('up-price').textContent   = (row.up_best_ask   * 100).toFixed(1) + '¢';
     document.getElementById('down-price').textContent = (row.down_best_ask * 100).toFixed(1) + '¢';
-    setStatus(new Date(row.ts).toLocaleTimeString());
+    setStatus(new Date(row.ts).toLocaleTimeString('en-US', { 
+      hour12: false, 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      second: '2-digit' 
+    }));
   }
 
   // ── History ───────────────────────────────────────────────
