@@ -10,7 +10,6 @@ WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
-THRESHOLDS = [60, 70, 80, 90]
 WINDOW_SECONDS = 300          # 5 minutes
 WS_PING_INTERVAL = 10         # seconds between WebSocket PINGs
 REST_POLL_INTERVAL = 2        # seconds between REST polls (fallback)

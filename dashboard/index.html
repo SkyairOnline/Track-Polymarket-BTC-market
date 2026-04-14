@@ -112,15 +112,6 @@
     </div>
   </div>
 
-  <!-- Anomaly Counts -->
-  <div class="card full">
-    <h2>Anomaly Counts — current market</h2>
-    <table>
-      <thead><tr><th>Threshold</th><th>Count</th><th>Last Side</th><th>Meaning</th></tr></thead>
-      <tbody id="anomaly-body"><tr><td colspan="4" style="color:#2a2a2a">Waiting...</td></tr></tbody>
-    </table>
-  </div>
-
   <!-- Trader Activity -->
   <div class="card full">
     <h2>Trader Activity — 0x7347d3...8c3d35</h2>
@@ -134,8 +125,8 @@
   <div class="card full history-wrap">
     <h2>Market History</h2>
     <table class="history-table">
-      <thead><tr><th>Market</th><th>60¢</th><th>70¢</th><th>80¢</th><th>90¢</th><th>Status</th></tr></thead>
-      <tbody id="history-body"><tr><td colspan="6" style="color:#2a2a2a">Loading...</td></tr></tbody>
+      <thead><tr><th>Market</th><th>Status</th></tr></thead>
+      <tbody id="history-body"><tr><td colspan="2" style="color:#2a2a2a">Loading...</td></tr></tbody>
     </table>
   </div>
 
@@ -206,12 +197,6 @@
   // ── State ─────────────────────────────────────────────────
   let activeMarket = null;
   let traderTrades = []; // all trades for current market
-  const anomalyState = {
-    60: { count: 0, side: null },
-    70: { count: 0, side: null },
-    80: { count: 0, side: null },
-    90: { count: 0, side: null },
-  };
 
   // ── Boot ─────────────────────────────────────────────────
   async function boot() {
@@ -233,12 +218,10 @@
     document.getElementById('market-end').textContent = new Date(m.end_time).toLocaleTimeString();
 
     // Reset chart and state for new market
-    resetAnomalyState();
     traderTrades = [];
 
     await Promise.all([
       loadChartData(),
-      loadAnomalyEvents(),
       loadTraderTrades(),
     ]);
   }
@@ -356,44 +339,6 @@
     flashAlert(`TRADER ${trade.side} ${trade.outcome} @ ${(trade.price*100).toFixed(0)}¢`, trade.side === 'BUY' ? '#00ff88' : '#ff8800');
   }
 
-  // ── Anomaly Events ────────────────────────────────────────
-  async function loadAnomalyEvents() {
-    if (!activeMarket) return;
-    const { data } = await db.from('anomaly_events')
-      .select('threshold, side, count')
-      .eq('market_slug', activeMarket.slug)
-      .order('id', { ascending: false })
-      .limit(500);
-    if (!data?.length) { renderAnomalyTable(); return; }
-    // Latest count+side per threshold (rows are descending, first hit = latest)
-    const seen = {};
-    for (const r of data) {
-      if (!seen[r.threshold]) seen[r.threshold] = { count: r.count, side: r.side };
-    }
-    for (const t of [60, 70, 80, 90]) {
-      if (seen[t]) { anomalyState[t].count = seen[t].count; anomalyState[t].side = seen[t].side; }
-    }
-    renderAnomalyTable();
-  }
-
-  function resetAnomalyState() {
-    for (const t of [60, 70, 80, 90]) anomalyState[t] = { count: 0, side: null };
-    renderAnomalyTable();
-  }
-
-  function renderAnomalyTable() {
-    document.getElementById('anomaly-body').innerHTML = [60, 70, 80, 90].map(t => {
-      const { count, side } = anomalyState[t];
-      const sc = side === 'Up' ? 'side-up' : side === 'Down' ? 'side-down' : 'side-none';
-      return `<tr>
-        <td><span class="badge">${t}¢</span></td>
-        <td><span class="count">${count}</span></td>
-        <td><span class="${sc}">${side || '—'}</span></td>
-        <td style="color:#333">${count === 0 ? 'No crossings yet' : `Reversed ${count}× past ${t}¢`}</td>
-      </tr>`;
-    }).join('');
-  }
-
   // ── Price display ─────────────────────────────────────────
   function updatePriceDisplay(row) {
     document.getElementById('up-price').textContent   = (row.up_best_ask   * 100).toFixed(1) + '¢';
@@ -409,23 +354,12 @@
   // ── History ───────────────────────────────────────────────
   async function loadHistory() {
     const tbody = document.getElementById('history-body');
-    const [{ data: markets }, { data: summary }] = await Promise.all([
-      db.from('markets').select('slug, active, end_time').order('window_ts', { ascending: false }).limit(100),
-      db.from('market_anomaly_summary').select('*'),
-    ]);
-    if (!markets?.length) { tbody.innerHTML = '<tr><td colspan="6" style="color:#2a2a2a">No history yet</td></tr>'; return; }
-    const counts = Object.fromEntries((summary || []).map(r => [r.market_slug, r]));
-    tbody.innerHTML = markets.map(m => {
-      const c = counts[m.slug] || {};
-      return `<tr style="cursor:pointer" onclick="window.location='market.html?slug=${m.slug}'">
-        <td>${m.active ? '<span class="active-dot"></span>' : ''}<a style="color:inherit;text-decoration:none" href="market.html?slug=${m.slug}">${m.slug}</a></td>
-        <td>${c.anomaly_60 ?? '—'}</td>
-        <td>${c.anomaly_70 ?? '—'}</td>
-        <td>${c.anomaly_80 ?? '—'}</td>
-        <td>${c.anomaly_90 ?? '—'}</td>
-        <td>${m.active ? '🟢 live' : '✓ done'}</td>
-      </tr>`;
-    }).join('');
+    const { data: markets } = await db.from('markets').select('slug, active, end_time').order('window_ts', { ascending: false }).limit(100);
+    if (!markets?.length) { tbody.innerHTML = '<tr><td colspan="2" style="color:#2a2a2a">No history yet</td></tr>'; return; }
+    tbody.innerHTML = markets.map(m => `<tr style="cursor:pointer" onclick="window.location='market.html?slug=${m.slug}'">
+      <td>${m.active ? '<span class="active-dot"></span>' : ''}<a style="color:inherit;text-decoration:none" href="market.html?slug=${m.slug}">${m.slug}</a></td>
+      <td>${m.active ? '🟢 live' : '✓ done'}</td>
+    </tr>`).join('');
   }
 
   // ── Realtime ──────────────────────────────────────────────
@@ -435,14 +369,6 @@
         if (activeMarket && row.market_slug === activeMarket.slug) {
           updatePriceDisplay(row);
           appendChartPoint(row);
-        }
-      })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'anomaly_events' }, ({ new: row }) => {
-        if (anomalyState[row.threshold] !== undefined && activeMarket && row.market_slug === activeMarket.slug) {
-          anomalyState[row.threshold].count = row.count;
-          anomalyState[row.threshold].side  = row.side;
-          renderAnomalyTable();
-          flashAlert(`ANOMALY ${row.threshold}¢ — ${row.side} (×${row.count})`, '#f0a500');
         }
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'trader_trades' }, ({ new: row }) => {

@@ -1,28 +1,26 @@
 """
-Polymarket BTC 5-Min Market Anomaly Tracker
---------------------------------------------
-Tracks live YES/NO best ask prices and counts predictability anomalies
-at thresholds 60, 70, 80, 90 cents for each 5-minute market window.
+Polymarket BTC 5-Min Market Tracker
+-------------------------------------
+Tracks live YES/NO best ask prices and monitors a specific trader wallet.
 
 Run:
     cd tracker
     python main.py
 
 Stop:
-    Ctrl+C  (saves final counts before exiting)
+    Ctrl+C
 """
 
 import asyncio
 import logging
 import signal
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from config import TRANSITION_LEAD_TIME, TRANSITION_CHECK_INTERVAL
 from market_discovery import discover_current, discover_next, Market
 from price_tracker import PriceTracker
-from anomaly_calculator import AnomalyCalculator
-from db import insert_market, insert_snapshot, insert_anomaly, insert_trader_trade, update_market_counts, update_market_final
+from db import insert_market, insert_snapshot, insert_trader_trade, update_market_final
 from trader_monitor import TraderMonitor
 
 logging.basicConfig(
@@ -35,7 +33,6 @@ log = logging.getLogger(__name__)
 
 # Mutable globals (simpler than passing through every async layer)
 _market: Market = None
-_calc = AnomalyCalculator()
 _tracker: PriceTracker = None
 _trader_monitor: TraderMonitor = None
 _shutdown = asyncio.Event()
@@ -48,14 +45,13 @@ _last_down_ask: float = None
 async def on_price(up: dict, down: dict, source: str):
     """
     up/down dicts: best_ask, worst_ask, best_bid, worst_bid
-    Anomaly logic runs on best_ask (most conservative / cheapest to buy).
+    Only writes a snapshot when best_ask changes for either token.
     """
     global _last_up_ask, _last_down_ask
 
     up_ask   = up["best_ask"]
     down_ask = down["best_ask"]
 
-    # Skip pure duplicates on best ask (bids/worst may still have changed — still record)
     if up_ask == _last_up_ask and down_ask == _last_down_ask:
         return
     _last_up_ask, _last_down_ask = up_ask, down_ask
@@ -66,18 +62,6 @@ async def on_price(up: dict, down: dict, source: str):
         None, insert_snapshot, _market.slug, ts, up, down, source
     )
 
-    events = _calc.check(up_ask, down_ask)
-    for e in events:
-        log.info(f"  ANOMALY [{e.threshold}¢]  {e.side:4s} @ {e.price:.3f}  (count={e.count})")
-        asyncio.get_event_loop().run_in_executor(
-            None, insert_anomaly, _market.slug, ts, e.threshold, e.side, e.price, e.count
-        )
-    if events:
-        asyncio.get_event_loop().run_in_executor(
-            None, update_market_counts, _market.slug, _calc.get_counts()
-        )
-
-    counts = _calc.get_counts()
     def fmt(v): return f"{v:.3f}" if v is not None else "null"
     log.info(
         f"  [{source[:4].upper()}]"
@@ -85,7 +69,6 @@ async def on_price(up: dict, down: dict, source: str):
         f"  bb={fmt(up['best_bid'])} wb={fmt(up['worst_bid'])}"
         f"  | DOWN ba={fmt(down['best_ask'])} wa={fmt(down['worst_ask'])}"
         f"  bb={fmt(down['best_bid'])} wb={fmt(down['worst_bid'])}"
-        f"  | a60={counts[60]} a70={counts[70]} a80={counts[80]} a90={counts[90]}"
     )
 
 
@@ -114,16 +97,10 @@ async def transition_loop():
                     await asyncio.sleep(wait)
 
                 # Finalise current market
-                counts = _calc.get_counts()
-                update_market_final(_market.slug, counts, active=False)
-                log.info(
-                    f"Market CLOSED: {_market.slug}"
-                    f"  anomalies: 60={counts[60]} 70={counts[70]}"
-                    f" 80={counts[80]} 90={counts[90]}"
-                )
+                update_market_final(_market.slug, active=False)
+                log.info(f"Market CLOSED: {_market.slug}")
 
                 # Switch to next market
-                _calc.reset()
                 _last_up_ask = _last_down_ask = None
                 insert_market(next_market)
                 await _tracker.switch_market(next_market.up_token_id, next_market.down_token_id)
@@ -149,7 +126,6 @@ def _parse_end_time(end_time: str) -> datetime:
     try:
         return datetime.fromisoformat(s)
     except ValueError:
-        # Fallback: strip microseconds and try again
         return datetime.fromisoformat(s[:19] + "+00:00")
 
 
@@ -168,10 +144,8 @@ async def on_trader_trade(trade: dict) -> None:
 def _handle_shutdown(signum, frame):
     log.info("\nShutdown signal received — saving final state...")
     _shutdown.set()
-    if _calc and _market:
-        counts = _calc.get_counts()
-        update_market_final(_market.slug, counts, active=True)
-        log.info(f"Saved counts: {counts}")
+    if _market:
+        update_market_final(_market.slug, active=True)
     if _tracker:
         _tracker.stop()
     if _trader_monitor:
@@ -182,10 +156,9 @@ async def main():
     global _market, _tracker, _trader_monitor
 
     log.info("=" * 60)
-    log.info("Polymarket BTC 5-Min Anomaly Tracker")
+    log.info("Polymarket BTC 5-Min Tracker")
     log.info("=" * 60)
 
-    # Discover current market
     _market = await discover_current()
     if _market is None:
         log.error("Failed to discover current market. Exiting.")

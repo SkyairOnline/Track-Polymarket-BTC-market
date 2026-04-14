@@ -46,32 +46,6 @@ def insert_snapshot(
         log.error(f"[DB] insert_snapshot failed: {e}")
 
 
-def insert_anomaly(market_slug: str, ts: str, threshold: int, side: str, price: float, count: int) -> None:
-    try:
-        _client.table("anomaly_events").insert({
-            "market_slug": market_slug,
-            "ts": ts,
-            "threshold": threshold,
-            "side": side,
-            "price": price,
-            "count": count,
-        }).execute()
-    except Exception as e:
-        log.error(f"[DB] insert_anomaly failed: {e}")
-
-
-def update_market_counts(slug: str, counts: dict) -> None:
-    """Update running anomaly counts on the active market (called on every anomaly event)."""
-    try:
-        _client.table("markets").update({
-            "anomaly_60": counts[60],
-            "anomaly_70": counts[70],
-            "anomaly_80": counts[80],
-            "anomaly_90": counts[90],
-        }).eq("slug", slug).execute()
-    except Exception as e:
-        log.error(f"[DB] update_market_counts failed: {e}")
-
 
 def insert_trader_trade(
     market_slug: str, ts: str, side: str, outcome: str,
@@ -92,14 +66,8 @@ def insert_trader_trade(
         log.error(f"[DB] insert_trader_trade failed: {e}")
 
 
-def update_market_final(slug: str, counts: dict, active: bool = False) -> None:
+def update_market_final(slug: str, active: bool = False) -> None:
     try:
-        _client.table("markets").update({
-            "anomaly_60": counts[60],
-            "anomaly_70": counts[70],
-            "anomaly_80": counts[80],
-            "anomaly_90": counts[90],
-            "active": active,
-        }).eq("slug", slug).execute()
+        _client.table("markets").update({"active": active}).eq("slug", slug).execute()
     except Exception as e:
         log.error(f"[DB] update_market_final failed: {e}")

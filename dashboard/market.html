@@ -85,14 +85,6 @@
   <span class="nav-meta" id="nav-meta"></span>
 </div>
 
-<!-- Anomaly summary stats -->
-<div class="summary">
-  <div class="stat-card"><div class="lbl">60¢ Reversals</div><div class="val" id="s60">—</div><div class="sub">anomaly count</div></div>
-  <div class="stat-card"><div class="lbl">70¢ Reversals</div><div class="val" id="s70">—</div><div class="sub">anomaly count</div></div>
-  <div class="stat-card"><div class="lbl">80¢ Reversals</div><div class="val" id="s80">—</div><div class="sub">anomaly count</div></div>
-  <div class="stat-card"><div class="lbl">90¢ Reversals</div><div class="val" id="s90">—</div><div class="sub">anomaly count</div></div>
-</div>
-
 <!-- Chart -->
 <div id="chart-wrap">
   <div id="chart-legend">
@@ -100,22 +92,12 @@
     <div class="legend-item"><div class="legend-dot no"></div> NO (Down) best ask</div>
     <div class="legend-item"><span style="font-size:.8rem;color:#00ff88">▲</span>&nbsp;Trader BUY</div>
     <div class="legend-item"><span style="font-size:.8rem;color:#ff8800">▼</span>&nbsp;Trader SELL</div>
-    <div class="legend-item"><span style="font-size:.8rem;color:#f0a500">◆</span>&nbsp;Anomaly event</div>
-    <div class="legend-item" style="margin-left:auto;font-size:0.6rem;color:#2a2a2a">step-line · no smoothing</div>
+<div class="legend-item" style="margin-left:auto;font-size:0.6rem;color:#2a2a2a">step-line · no smoothing</div>
   </div>
   <div id="chart"></div>
 </div>
 
 <div class="panels">
-
-  <!-- Anomaly counts -->
-  <div class="card">
-    <h2>Anomaly Counts</h2>
-    <table>
-      <thead><tr><th>Threshold</th><th>Count</th><th>Last Side</th></tr></thead>
-      <tbody id="anomaly-body"><tr><td colspan="3" class="empty">Loading...</td></tr></tbody>
-    </table>
-  </div>
 
   <!-- Trader trades -->
   <div class="card">
@@ -179,10 +161,9 @@
 
   // ── Boot ──────────────────────────────────────────────────
   async function boot() {
-    const [market, snapshots, anomalyEvents, traderTrades] = await Promise.all([
+    const [market, snapshots, traderTrades] = await Promise.all([
       loadMarket(),
       loadSnapshots(),
-      loadAnomalyEvents(),
       loadTraderTrades(),
     ]);
 
@@ -193,10 +174,8 @@
 
     renderHeader(market);
     renderChart(snapshots, traderTrades);
-    renderSummaryStats(anomalyEvents);
-    renderAnomalyTable(anomalyEvents);
     renderTraderTable(traderTrades);
-    renderTimeline(anomalyEvents, traderTrades);
+    renderTimeline(traderTrades);
 
     // Subscribe for live updates if this market is still active
     if (market.active) subscribeRealtime();
@@ -214,14 +193,6 @@
       .eq('market_slug', slug)
       .order('ts', { ascending: true })
       .limit(2000);
-    return data || [];
-  }
-
-  async function loadAnomalyEvents() {
-    const { data } = await db.from('anomaly_events')
-      .select('*')
-      .eq('market_slug', slug)
-      .order('ts', { ascending: true });
     return data || [];
   }
 
@@ -271,55 +242,9 @@
       };
     });
 
-    // Anomaly event markers (diamond shape = circle, positioned at mid-price)
-    // Show on upSeries as small circles with threshold label
-    const anomalyMarkers = [];
-    // Reload anomaly events for marker use
-    db.from('anomaly_events').select('ts, threshold, side, count').eq('market_slug', slug)
-      .order('ts', { ascending: true })
-      .then(({ data }) => {
-        if (!data?.length) return;
-        const aMarkers = data.map(e => ({
-          time: new Date(e.ts).getTime() / 1000,
-          position: e.side === 'Up' ? 'belowBar' : 'aboveBar',
-          color: '#f0a500',
-          shape: 'circle',
-          text: `A${e.threshold} ×${e.count}`,
-          size: 0.8,
-        }));
-        // Merge + sort all markers
-        const all = [...tradeMarkers, ...aMarkers].sort((a, b) => a.time - b.time);
-        upSeries.setMarkers(all);
-      });
-
-    // Set trade markers immediately (anomaly will be added async above)
-    const sortedTrades = [...tradeMarkers].sort((a, b) => a.time - b.time);
-    upSeries.setMarkers(sortedTrades);
+    upSeries.setMarkers([...tradeMarkers].sort((a, b) => a.time - b.time));
 
     chart.timeScale().fitContent();
-  }
-
-  function renderSummaryStats(events) {
-    const counts = { 60: 0, 70: 0, 80: 0, 90: 0 };
-    for (const e of events) counts[e.threshold] = Math.max(counts[e.threshold] || 0, e.count);
-    document.getElementById('s60').textContent = counts[60];
-    document.getElementById('s70').textContent = counts[70];
-    document.getElementById('s80').textContent = counts[80];
-    document.getElementById('s90').textContent = counts[90];
-  }
-
-  function renderAnomalyTable(events) {
-    const latest = {};
-    for (const e of events) latest[e.threshold] = e; // last row = highest count (asc order)
-    document.getElementById('anomaly-body').innerHTML = [60, 70, 80, 90].map(t => {
-      const e = latest[t];
-      const sc = !e ? 'side-none' : e.side === 'Up' ? 'side-up' : 'side-down';
-      return `<tr>
-        <td><span class="badge">${t}¢</span></td>
-        <td><span class="count">${e ? e.count : 0}</span></td>
-        <td><span class="${sc}">${e ? e.side : '—'}</span></td>
-      </tr>`;
-    }).join('');
   }
 
   function renderTraderTable(trades) {
@@ -343,36 +268,19 @@
     }).join('');
   }
 
-  function renderTimeline(anomalyEvents, traderTrades) {
+  function renderTimeline(traderTrades) {
     const tl = document.getElementById('timeline');
+    if (!traderTrades.length) { tl.innerHTML = '<div class="empty">No trades yet</div>'; return; }
 
-    // Merge events into one sorted list
-    const events = [
-      ...anomalyEvents.map(e => ({ ts: e.ts, type: 'anomaly', data: e })),
-      ...traderTrades.map(t => ({ ts: t.ts, type: 'trade',   data: t })),
-    ].sort((a, b) => new Date(a.ts) - new Date(b.ts));
-
-    if (!events.length) { tl.innerHTML = '<div class="empty">No events yet</div>'; return; }
-
-    tl.innerHTML = events.map(({ ts, type, data }) => {
-      const time = new Date(ts).toLocaleTimeString('en-US', {hour12:false});
-      let dotClass, tag, desc;
-
-      if (type === 'anomaly') {
-        dotClass = 'anomaly';
-        tag = `<span class="tl-tag anomaly">ANOMALY</span>`;
-        desc = `${data.threshold}¢ threshold — <b>${data.side}</b> side crossed (count ${data.count})`;
-      } else {
-        const isBuy = data.side === 'BUY';
-        dotClass = isBuy ? 'trade-buy' : 'trade-sell';
-        tag = `<span class="tl-tag ${isBuy ? 'trade' : 'trade-sell'}">${data.side}</span>`;
-        const txShort = data.transaction_hash ? `${data.transaction_hash.slice(0,8)}…${data.transaction_hash.slice(-6)}` : null;
-        const txLink = txShort ? ` · <a href="https://polygonscan.com/tx/${data.transaction_hash}" target="_blank" rel="noopener" style="color:#555;text-decoration:none" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">${txShort}</a>` : '';
-        desc = `${data.outcome} @ ${(data.price * 100).toFixed(1)}¢ · size ${parseFloat(data.size).toFixed(2)} USDC (${data.role})${txLink}`;
-      }
-
+    tl.innerHTML = [...traderTrades].sort((a, b) => new Date(a.ts) - new Date(b.ts)).map(t => {
+      const isBuy = t.side === 'BUY';
+      const time = new Date(t.ts).toLocaleTimeString('en-US', {hour12:false});
+      const tag = `<span class="tl-tag ${isBuy ? 'trade' : 'trade-sell'}">${t.side}</span>`;
+      const txShort = t.transaction_hash ? `${t.transaction_hash.slice(0,8)}…${t.transaction_hash.slice(-6)}` : null;
+      const txLink = txShort ? ` · <a href="https://polygonscan.com/tx/${t.transaction_hash}" target="_blank" rel="noopener" style="color:#555;text-decoration:none" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">${txShort}</a>` : '';
+      const desc = `${t.outcome} @ ${(t.price * 100).toFixed(1)}¢ · size ${parseFloat(t.size).toFixed(2)} USDC${txLink}`;
       return `<div class="tl-item">
-        <div class="tl-dot ${dotClass}"></div>
+        <div class="tl-dot ${isBuy ? 'trade-buy' : 'trade-sell'}"></div>
         <span class="tl-time">${time}</span>
         <div class="tl-body">${tag}${desc}</div>
       </div>`;
@@ -380,36 +288,25 @@
   }
 
   // ── Realtime (only for active markets) ───────────────────
-  let _anomalyEvents = [], _traderTrades = [];
+  let _traderTrades = [];
 
   function subscribeRealtime() {
-    db.from('anomaly_events').select('*').eq('market_slug', slug).order('ts', { ascending: true })
-      .then(({ data }) => { _anomalyEvents = data || []; });
     db.from('trader_trades').select('*').eq('market_slug', slug).order('ts', { ascending: true })
       .then(({ data }) => { _traderTrades = data || []; });
 
     db.channel(`market-${slug}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'price_snapshots',
           filter: `market_slug=eq.${slug}` }, ({ new: row }) => {
-        const tsMs = new Date(row.ts).getTime();
-        const time = tsMs / 1000;
+        const time = new Date(row.ts).getTime() / 1000;
         upSeries.update({time, value: parseFloat((row.up_best_ask*100).toFixed(2))});
         downSeries.update({time, value: parseFloat((row.down_best_ask*100).toFixed(2))});
-      })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'anomaly_events',
-          filter: `market_slug=eq.${slug}` }, ({ new: row }) => {
-        _anomalyEvents.push(row);
-        renderSummaryStats(_anomalyEvents);
-        renderAnomalyTable(_anomalyEvents);
-        renderTimeline(_anomalyEvents, _traderTrades);
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'trader_trades',
           filter: `market_slug=eq.${slug}` }, ({ new: row }) => {
         _traderTrades.push(row);
         renderTraderTable(_traderTrades);
-        renderTimeline(_anomalyEvents, _traderTrades);
-        // Rebuild markers with new trade
-        renderChart([], _traderTrades); // partial — just refresh markers
+        renderTimeline(_traderTrades);
+        renderChart([], _traderTrades);
       })
       .subscribe();
   }
