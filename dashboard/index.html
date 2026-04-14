@@ -88,6 +88,49 @@
 
     .status-bar { font-size: 0.65rem; color: #333; margin-top: 12px; }
     #status { color: #444; }
+
+    /* ── Paper Trading Widget ── */
+    .trade-section { display: grid; grid-template-columns: 340px 1fr; gap: 14px; margin-bottom: 16px; }
+    .trade-widget { background: #161b22; border: 1px solid #1e1e1e; border-radius: 12px; padding: 20px; }
+    .trade-tabs-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .trade-tabs { display: flex; border-bottom: 2px solid #1e1e1e; }
+    .trade-tab { padding: 8px 18px; font-size: 0.82rem; font-weight: 700; cursor: pointer; color: #555; background: none; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; font-family: inherit; transition: color .15s, border-color .15s; }
+    .trade-tab.buy.active { color: #fff; border-bottom-color: #fff; }
+    .trade-tab.sell.active { color: #f04040; border-bottom-color: #f04040; }
+    .market-badge { background: #1e1e1e; border: 1px solid #2a2a2a; border-radius: 6px; padding: 4px 10px; font-size: 0.68rem; color: #555; }
+    .outcome-row { display: flex; gap: 8px; margin: 16px 0; }
+    .outcome-btn { flex: 1; padding: 13px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; cursor: pointer; border: 1px solid transparent; transition: all .15s; font-family: inherit; }
+    .outcome-btn.up { background: #1a2c1a; border-color: #1e3c1e; color: #3ecf8e; }
+    .outcome-btn.up.active { background: #3ecf8e; color: #000; border-color: #3ecf8e; }
+    .outcome-btn.down { background: #1e1e1e; border-color: #2a2a2a; color: #555; }
+    .outcome-btn.down.active { background: #2c1e1e; border-color: #f04040; color: #f04040; }
+    .amount-header { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.68rem; color: #444; }
+    .amount-input { font-size: 1.8rem; font-weight: 700; color: #ccc; text-align: right; padding: 4px 0 10px; background: none; border: none; outline: none; width: 100%; font-family: inherit; caret-color: #3ecf8e; }
+    .amount-input::placeholder { color: #333; }
+    .amount-input::-webkit-inner-spin-button, .amount-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+    .quick-btns { display: flex; gap: 6px; margin-bottom: 12px; }
+    .quick-btn { flex: 1; padding: 7px 0; background: #1e1e1e; border: 1px solid #2a2a2a; border-radius: 6px; color: #777; font-size: 0.68rem; cursor: pointer; font-family: inherit; transition: all .12s; }
+    .quick-btn:hover { background: #2a2a2a; color: #ccc; }
+    .fee-info { font-size: 0.62rem; color: #3a3a3a; margin-bottom: 12px; min-height: 1.1em; }
+    .trade-btn { width: 100%; padding: 14px; border-radius: 10px; font-size: 0.88rem; font-weight: 700; cursor: pointer; border: none; font-family: inherit; letter-spacing: 0.03em; transition: filter .15s; }
+    .trade-btn.buy { background: #2563eb; color: #fff; }
+    .trade-btn.sell { background: #2a1010; color: #f04040; border: 1px solid #f0404033; }
+    .trade-btn:hover:not(:disabled) { filter: brightness(1.15); }
+    .trade-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* ── Portfolio card ── */
+    .portfolio-card { background: #111; border: 1px solid #1e1e1e; border-radius: 10px; padding: 20px; display: flex; flex-direction: column; }
+    .portfolio-card h2 { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.12em; color: #444; margin-bottom: 0; }
+    .portfolio-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .reset-btn { background: none; border: 1px solid #2a2a2a; color: #444; font-size: 0.6rem; padding: 3px 9px; border-radius: 4px; cursor: pointer; font-family: inherit; transition: all .12s; }
+    .reset-btn:hover { border-color: #f04040; color: #f04040; }
+    .portfolio-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+    .pf-stat { background: #181818; border-radius: 8px; padding: 12px; }
+    .pf-stat .lbl { font-size: 0.58rem; color: #444; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 5px; }
+    .pf-stat .val { font-size: 1.25rem; font-weight: 700; color: #666; }
+    .pf-pos .val { color: #3ecf8e; }
+    .pf-neg .val { color: #f04040; }
+    .paper-hist { max-height: 180px; overflow-y: auto; }
   </style>
 </head>
 <body>
@@ -124,6 +167,80 @@
     <div class="legend-item" style="margin-left:auto; font-size:0.6rem; color:#333">step-line · no smoothing</div>
   </div>
   <div id="chart"></div>
+</div>
+
+<!-- Paper Trading Section -->
+<div class="trade-section">
+
+  <!-- Trading Widget -->
+  <div class="trade-widget">
+    <div class="trade-tabs-row">
+      <div class="trade-tabs">
+        <button class="trade-tab buy active" id="tab-buy" onclick="setTradeTab('buy')">Buy</button>
+        <button class="trade-tab sell" id="tab-sell" onclick="setTradeTab('sell')">Sell</button>
+      </div>
+      <span class="market-badge">Market</span>
+    </div>
+
+    <div class="outcome-row">
+      <button class="outcome-btn up active" id="btn-up" onclick="setTradeOutcome('Up')">Up —</button>
+      <button class="outcome-btn down" id="btn-down" onclick="setTradeOutcome('Down')">Down —</button>
+    </div>
+
+    <div id="buy-panel">
+      <div class="amount-header">
+        <span>Amount</span>
+        <span id="trade-balance-lbl">Balance $100.00</span>
+      </div>
+      <input class="amount-input" id="trade-amount-display" type="number" min="0" step="0.01" placeholder="$0" oninput="onAmountInput(this.value)" />
+      <div class="quick-btns">
+        <button class="quick-btn" onclick="addTradeAmount(1)">+$1</button>
+        <button class="quick-btn" onclick="addTradeAmount(5)">+$5</button>
+        <button class="quick-btn" onclick="addTradeAmount(10)">+$10</button>
+        <button class="quick-btn" onclick="addTradeAmount(100)">+$100</button>
+        <button class="quick-btn" onclick="addTradeAmount('max')">Max</button>
+      </div>
+    </div>
+
+    <div id="sell-panel" style="display:none">
+      <div class="amount-header"><span>Your position</span></div>
+      <div class="amount-display" id="sell-position-display" style="font-size:1.1rem;color:#555;padding-bottom:8px">No position</div>
+    </div>
+
+    <div class="fee-info" id="trade-fee-info">Taker fee: 7.2% · Formula: shares × 0.072 × p × (1−p)</div>
+    <button class="trade-btn buy" id="trade-action-btn" onclick="executePaperTrade()" disabled>Buy Up</button>
+  </div>
+
+  <!-- Portfolio Summary -->
+  <div class="portfolio-card">
+    <div class="portfolio-header">
+      <h2>Paper Portfolio</h2>
+      <button class="reset-btn" onclick="resetPaperTrades()">Reset</button>
+    </div>
+    <div class="portfolio-stats">
+      <div class="pf-stat"><div class="lbl">Initial Balance</div><div class="val" style="color:#555">$100.00</div></div>
+      <div class="pf-stat"><div class="lbl">Cash Balance</div><div class="val" id="pf-balance">$100.00</div></div>
+      <div class="pf-stat" id="pf-pnl-stat"><div class="lbl">Total PnL</div><div class="val" id="pf-pnl">$0.00</div></div>
+      <div class="pf-stat"><div class="lbl">Open Positions</div><div class="val" style="color:#888" id="pf-positions">$0.00</div></div>
+    </div>
+    <h2 style="margin-bottom:10px">Trade History</h2>
+    <div class="paper-hist">
+      <table style="width:100%;border-collapse:collapse;font-size:0.75rem">
+        <thead><tr>
+          <th style="font-size:0.58rem;color:#444;text-transform:uppercase;padding:0 6px 6px;text-align:left">Time</th>
+          <th style="font-size:0.58rem;color:#444;text-transform:uppercase;padding:0 6px 6px;text-align:left">Side</th>
+          <th style="font-size:0.58rem;color:#444;text-transform:uppercase;padding:0 6px 6px;text-align:left">Outcome</th>
+          <th style="font-size:0.58rem;color:#444;text-transform:uppercase;padding:0 6px 6px;text-align:left">Price</th>
+          <th style="font-size:0.58rem;color:#444;text-transform:uppercase;padding:0 6px 6px;text-align:left">Size</th>
+          <th style="font-size:0.58rem;color:#444;text-transform:uppercase;padding:0 6px 6px;text-align:left">Fee</th>
+        </tr></thead>
+        <tbody id="paper-trades-body">
+          <tr><td colspan="6" style="color:#2a2a2a;padding:6px">No trades yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
 </div>
 
 <div class="grid">
@@ -393,6 +510,7 @@
   async function boot() {
     await loadActiveMarket();
     await loadHistory();
+    await loadPaperTrades();
     subscribeRealtime();
     tickCountdown();
     connectBinanceWs();
@@ -620,6 +738,9 @@
       hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
     }));
     checkDivergence();
+    // Refresh widget prices + portfolio unrealized PnL on every tick
+    updateTradeWidget();
+    renderPortfolio();
   }
 
   // ── History ───────────────────────────────────────────────
@@ -671,6 +792,224 @@
   }
 
   function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+  // ── Paper Trading ─────────────────────────────────────────
+  const TAKER_FEE_RATE = 0.072;   // Polymarket crypto taker fee (7.2%)
+  const INITIAL_BALANCE = 100.0;
+
+  let paperBalance = INITIAL_BALANCE;
+  let paperTrades = [];
+  // Positions keyed by outcome: { shares, avgCost }
+  let paperPos = { Up: { shares: 0, avgCost: 0 }, Down: { shares: 0, avgCost: 0 } };
+
+  // Widget UI state
+  let _tradeTab = 'buy';
+  let _tradeOutcome = 'Up';
+  let _tradeAmount = 0;
+
+  // Fee when you know shares already (used for SELL)
+  function calcFee(shares, price) {
+    return shares * TAKER_FEE_RATE * price * (1 - price);
+  }
+
+  // Fee when total outlay is fixed — solves circular dependency:
+  // fee = total × rate×(1−p) / (1 + rate×(1−p))
+  function calcFeeFromTotal(total, price) {
+    const r = TAKER_FEE_RATE * (1 - price);
+    return total * r / (1 + r);
+  }
+
+  async function loadPaperTrades() {
+    const { data } = await db.from('paper_trades').select('*').order('ts', { ascending: true });
+    paperTrades = data || [];
+    // Replay to rebuild state
+    paperBalance = INITIAL_BALANCE;
+    paperPos = { Up: { shares: 0, avgCost: 0 }, Down: { shares: 0, avgCost: 0 } };
+    for (const t of paperTrades) _applyTrade(t);
+    renderPortfolio();
+    renderPaperHistory();
+  }
+
+  function _applyTrade(t) {
+    const pos = paperPos[t.outcome];
+    if (t.side === 'BUY') {
+      const totalCost = pos.shares * pos.avgCost + t.size_usdc;
+      pos.shares += t.shares;
+      pos.avgCost = pos.shares > 0 ? totalCost / pos.shares : 0;
+      paperBalance -= (t.size_usdc + t.fee);
+    } else {
+      pos.shares = Math.max(0, pos.shares - t.shares);
+      if (pos.shares < 0.0001) { pos.shares = 0; pos.avgCost = 0; }
+      paperBalance += (t.size_usdc - t.fee);
+    }
+  }
+
+  async function executePaperTrade() {
+    const price = _tradeOutcome === 'Up' ? _upAsk : _downAsk;
+    if (!price) { flashAlert('No live price', '#f04040'); return; }
+
+    let trade;
+    if (_tradeTab === 'buy') {
+      if (_tradeAmount <= 0) return;
+      const fee      = calcFeeFromTotal(_tradeAmount, price);
+      const size_usdc = _tradeAmount - fee;
+      const shares   = size_usdc / price;
+      if (_tradeAmount > paperBalance + 0.0001) { flashAlert('Insufficient balance', '#f04040'); return; }
+      trade = { market_slug: activeMarket?.slug || null, side: 'BUY', outcome: _tradeOutcome, price, size_usdc, shares, fee };
+    } else {
+      const pos = paperPos[_tradeOutcome];
+      if (pos.shares < 0.0001) { flashAlert('No position to sell', '#f04040'); return; }
+      const shares   = pos.shares;
+      const proceeds = shares * price;
+      const fee      = calcFee(shares, price);
+      trade = { market_slug: activeMarket?.slug || null, side: 'SELL', outcome: _tradeOutcome, price, size_usdc: proceeds, shares, fee };
+    }
+
+    const { data, error } = await db.from('paper_trades').insert(trade).select().single();
+    if (error) { console.error('paper_trades insert:', error); flashAlert('DB error — check console', '#f04040'); return; }
+
+    paperTrades.push(data);
+    _applyTrade(data);
+    renderPortfolio();
+    renderPaperHistory();
+    setTradeAmount(0);
+
+    const sign = trade.side === 'BUY' ? '+' : '−';
+    const col  = trade.side === 'BUY' ? '#3ecf8e' : '#f0a500';
+    flashAlert(`${trade.side} ${trade.outcome} @ ${(trade.price*100).toFixed(1)}¢  ${sign}${trade.shares.toFixed(2)} shares`, col);
+  }
+
+  async function resetPaperTrades() {
+    if (!confirm('Reset paper portfolio? All trade history will be deleted.')) return;
+    await db.from('paper_trades').delete().neq('id', 0);
+    paperTrades = [];
+    paperBalance = INITIAL_BALANCE;
+    paperPos = { Up: { shares: 0, avgCost: 0 }, Down: { shares: 0, avgCost: 0 } };
+    renderPortfolio();
+    renderPaperHistory();
+    setTradeAmount(0);
+  }
+
+  function renderPortfolio() {
+    let openValue = 0;
+    for (const [outcome, pos] of Object.entries(paperPos)) {
+      if (pos.shares > 0.0001) {
+        const px = outcome === 'Up' ? (_upAsk || pos.avgCost) : (_downAsk || pos.avgCost);
+        openValue += pos.shares * px;
+      }
+    }
+    const totalValue = paperBalance + openValue;
+    const pnl        = totalValue - INITIAL_BALANCE;
+
+    document.getElementById('pf-balance').textContent   = `$${paperBalance.toFixed(2)}`;
+    document.getElementById('pf-positions').textContent = `$${openValue.toFixed(2)}`;
+    document.getElementById('pf-pnl').textContent       = `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
+
+    const pnlStat = document.getElementById('pf-pnl-stat');
+    pnlStat.className = 'pf-stat ' + (pnl > 0.005 ? 'pf-pos' : pnl < -0.005 ? 'pf-neg' : '');
+
+    document.getElementById('trade-balance-lbl').textContent = `Balance $${paperBalance.toFixed(2)}`;
+    updateTradeWidget();
+  }
+
+  function renderPaperHistory() {
+    const tbody = document.getElementById('paper-trades-body');
+    if (!paperTrades.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="color:#2a2a2a;padding:6px">No trades yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = [...paperTrades].reverse().slice(0, 30).map(t => {
+      const isBuy = t.side === 'BUY';
+      const color = isBuy ? (t.outcome === 'Up' ? '#3ecf8e' : '#f04040') : '#777';
+      return `<tr style="color:${color}">
+        <td style="padding:5px 6px">${new Date(t.ts).toLocaleTimeString()}</td>
+        <td style="padding:5px 6px"><b>${t.side}</b></td>
+        <td style="padding:5px 6px">${t.outcome}</td>
+        <td style="padding:5px 6px">${(t.price*100).toFixed(1)}¢</td>
+        <td style="padding:5px 6px">$${parseFloat(t.size_usdc).toFixed(2)}</td>
+        <td style="padding:5px 6px;color:#555">$${parseFloat(t.fee).toFixed(4)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function updateTradeWidget() {
+    // Outcome buttons — show live prices
+    document.getElementById('btn-up').textContent   = `Up ${_upAsk   != null ? (_upAsk  *100).toFixed(1)+'¢' : '—'}`;
+    document.getElementById('btn-down').textContent = `Down ${_downAsk != null ? (_downAsk*100).toFixed(1)+'¢' : '—'}`;
+
+    const price   = _tradeOutcome === 'Up' ? _upAsk : _downAsk;
+    const pos     = paperPos[_tradeOutcome];
+    const actionBtn = document.getElementById('trade-action-btn');
+
+    if (_tradeTab === 'buy') {
+      document.getElementById('buy-panel').style.display  = '';
+      document.getElementById('sell-panel').style.display = 'none';
+      actionBtn.textContent = `Buy ${_tradeOutcome}`;
+      actionBtn.className   = 'trade-btn buy';
+      if (_tradeAmount > 0 && price) {
+        const fee      = calcFeeFromTotal(_tradeAmount, price);
+        const size_usdc = _tradeAmount - fee;
+        const shares   = size_usdc / price;
+        document.getElementById('trade-fee-info').textContent =
+          `Fee: $${fee.toFixed(4)} · Buying: $${size_usdc.toFixed(4)} → ${shares.toFixed(4)} shares`;
+        actionBtn.disabled = _tradeAmount > paperBalance + 0.0001 || !price;
+      } else {
+        document.getElementById('trade-fee-info').textContent =
+          `Taker fee: 7.2% · Formula: shares × 0.072 × p × (1−p)`;
+        actionBtn.disabled = true;
+      }
+    } else {
+      document.getElementById('buy-panel').style.display  = 'none';
+      document.getElementById('sell-panel').style.display = '';
+      actionBtn.textContent = `Sell ${_tradeOutcome}`;
+      actionBtn.className   = 'trade-btn sell';
+      if (pos.shares > 0.0001 && price) {
+        const proceeds = pos.shares * price;
+        const fee      = calcFee(pos.shares, price);
+        document.getElementById('sell-position-display').textContent =
+          `${pos.shares.toFixed(4)} shares · ~$${proceeds.toFixed(2)}`;
+        document.getElementById('trade-fee-info').textContent =
+          `Fee: $${fee.toFixed(4)} · Net proceeds: $${(proceeds - fee).toFixed(4)}`;
+        actionBtn.disabled = false;
+      } else {
+        document.getElementById('sell-position-display').textContent = 'No position';
+        document.getElementById('trade-fee-info').textContent =
+          `Taker fee: 7.2% · Formula: shares × 0.072 × p × (1−p)`;
+        actionBtn.disabled = true;
+      }
+    }
+  }
+
+  function setTradeTab(tab) {
+    _tradeTab = tab;
+    document.getElementById('tab-buy').className  = `trade-tab buy  ${tab === 'buy'  ? 'active' : ''}`;
+    document.getElementById('tab-sell').className = `trade-tab sell ${tab === 'sell' ? 'active' : ''}`;
+    updateTradeWidget();
+  }
+
+  function setTradeOutcome(outcome) {
+    _tradeOutcome = outcome;
+    document.getElementById('btn-up').className   = `outcome-btn up   ${outcome === 'Up'   ? 'active' : ''}`;
+    document.getElementById('btn-down').className = `outcome-btn down ${outcome === 'Down' ? 'active' : ''}`;
+    updateTradeWidget();
+  }
+
+  function onAmountInput(raw) {
+    _tradeAmount = Math.max(0, parseFloat(raw) || 0);
+    updateTradeWidget();
+  }
+
+  function setTradeAmount(amount) {
+    _tradeAmount = Math.max(0, amount);
+    const el = document.getElementById('trade-amount-display');
+    el.value = _tradeAmount > 0 ? _tradeAmount.toFixed(2) : '';
+    updateTradeWidget();
+  }
+
+  function addTradeAmount(delta) {
+    if (delta === 'max') setTradeAmount(Math.floor(paperBalance * 100) / 100);
+    else                 setTradeAmount(_tradeAmount + delta);
+  }
 
   boot();
 </script>

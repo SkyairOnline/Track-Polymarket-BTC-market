@@ -88,7 +88,30 @@ CREATE POLICY "anon read price_snapshots"       ON price_snapshots       FOR SEL
 CREATE POLICY "anon read trader_trades"         ON trader_trades         FOR SELECT TO anon USING (true);
 CREATE POLICY "anon read btc_divergence_alerts" ON btc_divergence_alerts FOR SELECT TO anon USING (true);
 
+-- ── paper_trades ─────────────────────────────────────────────
+-- Demo/paper trading records. Anon key has read + insert + delete.
+DROP TABLE IF EXISTS paper_trades;
+
+CREATE TABLE paper_trades (
+    id          SERIAL PRIMARY KEY,
+    ts          TIMESTAMPTZ DEFAULT now(),
+    market_slug TEXT,
+    side        TEXT NOT NULL,       -- 'BUY' or 'SELL'
+    outcome     TEXT NOT NULL,       -- 'Up' or 'Down'
+    price       REAL NOT NULL,       -- best ask at execution
+    size_usdc   REAL NOT NULL,       -- USDC amount (spend for BUY, proceeds for SELL)
+    shares      REAL NOT NULL,       -- shares transacted
+    fee         REAL NOT NULL        -- taker fee paid (crypto rate 7.2%)
+);
+
+CREATE INDEX idx_paper_trades_ts ON paper_trades(ts DESC);
+
+ALTER TABLE paper_trades ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "anon read paper_trades"   ON paper_trades FOR SELECT TO anon USING (true);
+CREATE POLICY "anon insert paper_trades" ON paper_trades FOR INSERT TO anon WITH CHECK (true);
+CREATE POLICY "anon delete paper_trades" ON paper_trades FOR DELETE TO anon USING (true);
+
 -- ── Realtime ─────────────────────────────────────────────────
 -- After running this script, also go to:
 -- Supabase Dashboard → Database → Replication
--- and toggle ON for: markets, price_snapshots, trader_trades, btc_divergence_alerts
+-- and toggle ON for: markets, price_snapshots, trader_trades, btc_divergence_alerts, paper_trades
