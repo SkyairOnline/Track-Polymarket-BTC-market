@@ -20,8 +20,9 @@ from datetime import datetime, timezone
 from config import TRANSITION_LEAD_TIME, TRANSITION_CHECK_INTERVAL
 from market_discovery import discover_current, discover_next, Market
 from price_tracker import PriceTracker
-from db import insert_market, insert_snapshot, insert_trader_trade, update_market_final
+from db import insert_market, insert_snapshot, insert_trader_trade, update_market_final, insert_btc_divergence_alert
 from trader_monitor import TraderMonitor
+from btc_monitor import BtcMonitor
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -35,6 +36,7 @@ log = logging.getLogger(__name__)
 _market: Market = None
 _tracker: PriceTracker = None
 _trader_monitor: TraderMonitor = None
+_btc_monitor: BtcMonitor = None
 _shutdown = asyncio.Event()
 
 # Throttle snapshots: only write to DB when price changes
@@ -61,6 +63,9 @@ async def on_price(up: dict, down: dict, source: str):
     asyncio.get_event_loop().run_in_executor(
         None, insert_snapshot, _market.slug, ts, up, down, source
     )
+
+    if _btc_monitor:
+        await _btc_monitor.check_divergence(up_ask, down_ask)
 
     def fmt(v): return f"{v:.3f}" if v is not None else "null"
     log.info(
@@ -105,6 +110,7 @@ async def transition_loop():
                 insert_market(next_market)
                 await _tracker.switch_market(next_market.up_token_id, next_market.down_token_id)
                 _trader_monitor.set_market(next_market.condition_id, next_market.slug)
+                _btc_monitor.set_market(next_market.slug, next_market.window_ts)
                 _market = next_market
                 log.info(f"Market OPEN: {_market.slug}  (ends {_market.end_time})")
 
@@ -129,6 +135,16 @@ def _parse_end_time(end_time: str) -> datetime:
         return datetime.fromisoformat(s[:19] + "+00:00")
 
 
+async def on_btc_divergence(
+    market_slug: str, ts: str, btc_price: float, price_to_beat: float,
+    direction: str, up_best_ask: float, down_best_ask: float,
+) -> None:
+    asyncio.get_event_loop().run_in_executor(
+        None, insert_btc_divergence_alert,
+        market_slug, ts, btc_price, price_to_beat, direction, up_best_ask, down_best_ask,
+    )
+
+
 async def on_trader_trade(trade: dict) -> None:
     log.info(
         f"  TRADER: {trade['side']:4s} {trade['outcome']:4s} "
@@ -150,10 +166,12 @@ def _handle_shutdown(signum, frame):
         _tracker.stop()
     if _trader_monitor:
         _trader_monitor.stop()
+    if _btc_monitor:
+        _btc_monitor.stop()
 
 
 async def main():
-    global _market, _tracker, _trader_monitor
+    global _market, _tracker, _trader_monitor, _btc_monitor
 
     log.info("=" * 60)
     log.info("Polymarket BTC 5-Min Tracker")
@@ -181,6 +199,10 @@ async def main():
     _trader_monitor.set_market(_market.condition_id, _market.slug)
     log.info(f"Trader monitor active for: {_market.condition_id[:16]}...")
 
+    _btc_monitor = BtcMonitor(on_divergence=on_btc_divergence)
+    _btc_monitor.set_market(_market.slug, _market.window_ts)
+    log.info(f"BTC monitor active — fetching price to beat for window {_market.window_ts}...")
+
     signal.signal(signal.SIGINT, _handle_shutdown)
     signal.signal(signal.SIGTERM, _handle_shutdown)
 
@@ -191,6 +213,7 @@ async def main():
             _tracker.run(),
             transition_loop(),
             _trader_monitor.run(),
+            _btc_monitor.run(),
         )
     except asyncio.CancelledError:
         pass

@@ -4,6 +4,7 @@
 -- ============================================================
 
 -- Drop everything first (clean slate)
+DROP TABLE IF EXISTS btc_divergence_alerts;
 DROP TABLE IF EXISTS trader_trades;
 DROP TABLE IF EXISTS price_snapshots;
 DROP TABLE IF EXISTS markets;
@@ -58,19 +59,36 @@ CREATE TABLE trader_trades (
 CREATE INDEX idx_trader_trades_market ON trader_trades(market_slug);
 CREATE INDEX idx_trader_trades_ts     ON trader_trades(ts DESC);
 
+-- ── btc_divergence_alerts ────────────────────────────────────
+CREATE TABLE btc_divergence_alerts (
+    id            SERIAL PRIMARY KEY,
+    market_slug   TEXT NOT NULL REFERENCES markets(slug),
+    ts            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    btc_price     REAL NOT NULL,
+    price_to_beat REAL NOT NULL,
+    direction     TEXT NOT NULL,   -- 'bearish' | 'bullish'
+    up_best_ask   REAL NOT NULL,
+    down_best_ask REAL NOT NULL
+);
+
+CREATE INDEX idx_btc_alerts_market ON btc_divergence_alerts(market_slug);
+CREATE INDEX idx_btc_alerts_ts     ON btc_divergence_alerts(ts DESC);
+
 -- ── RLS ──────────────────────────────────────────────────────
 -- Python tracker uses sb_secret key (bypasses RLS automatically).
 -- Dashboard uses anon key — needs SELECT grants.
 
-ALTER TABLE markets         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE price_snapshots ENABLE ROW LEVEL SECURITY;
-ALTER TABLE trader_trades   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE markets               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE price_snapshots       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE trader_trades         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE btc_divergence_alerts ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "anon read markets"         ON markets         FOR SELECT TO anon USING (true);
-CREATE POLICY "anon read price_snapshots" ON price_snapshots FOR SELECT TO anon USING (true);
-CREATE POLICY "anon read trader_trades"   ON trader_trades   FOR SELECT TO anon USING (true);
+CREATE POLICY "anon read markets"               ON markets               FOR SELECT TO anon USING (true);
+CREATE POLICY "anon read price_snapshots"       ON price_snapshots       FOR SELECT TO anon USING (true);
+CREATE POLICY "anon read trader_trades"         ON trader_trades         FOR SELECT TO anon USING (true);
+CREATE POLICY "anon read btc_divergence_alerts" ON btc_divergence_alerts FOR SELECT TO anon USING (true);
 
 -- ── Realtime ─────────────────────────────────────────────────
 -- After running this script, also go to:
 -- Supabase Dashboard → Database → Replication
--- and toggle ON for: markets, price_snapshots, trader_trades
+-- and toggle ON for: markets, price_snapshots, trader_trades, btc_divergence_alerts

@@ -19,7 +19,9 @@
     #market-slug-header { font-size: 0.78rem; color: #aaa; }
     #countdown-header { font-size: 0.78rem; color: #f0a500; }
 
-    /* ── Chart ── */
+    /* ── Charts ── */
+    #btc-chart-wrap { background: #0f0f0f; border: 1px solid #1e1e1e; border-radius: 10px; margin-bottom: 10px; padding: 14px 14px 0; transition: border-color .3s; }
+    #btc-chart-legend { display: flex; gap: 16px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
     #chart-wrap { background: #0f0f0f; border: 1px solid #1e1e1e; border-radius: 10px; margin-bottom: 16px; padding: 14px 14px 0; }
     #chart-legend { display: flex; gap: 20px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
     .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: #666; }
@@ -27,7 +29,22 @@
     .legend-dot.yes { background: #3ecf8e; }
     .legend-dot.no  { background: #f04040; }
     .legend-icon { font-size: 0.8rem; }
+    #btc-chart { width: 100%; height: 180px; }
     #chart { width: 100%; height: 360px; }
+
+    /* ── Divergence banner ── */
+    #divergence-banner {
+      display: none; margin: 0 0 10px; padding: 8px 14px;
+      border-radius: 6px; border: 1px solid #f0a500;
+      background: #f0a50015; color: #f0a500;
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;
+      animation: pulse-border 2s infinite;
+    }
+    #divergence-banner.bullish { border-color: #3ecf8e; background: #3ecf8e15; color: #3ecf8e; }
+    @keyframes pulse-border { 0%,100%{opacity:1} 50%{opacity:.6} }
+
+    /* ── Warning glow on price boxes ── */
+    .price-box.warn { box-shadow: 0 0 0 2px #f0a50066; }
 
     /* ── Grid ── */
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -82,7 +99,22 @@
   <span id="countdown-header"></span>
 </div>
 
-<!-- Chart -->
+<!-- Divergence banner -->
+<div id="divergence-banner"></div>
+
+<!-- BTC Price Chart -->
+<div id="btc-chart-wrap">
+  <div id="btc-chart-legend">
+    <div class="legend-item" style="color:#f0a500;font-weight:700">₿ BTC/USDT</div>
+    <div class="legend-item" id="btc-price-live" style="color:#fff;font-size:0.85rem;font-weight:700">—</div>
+    <div class="legend-item" id="btc-open-display" style="color:#555">Open: —</div>
+    <div class="legend-item" id="btc-delta-display" style="color:#555">—</div>
+    <div class="legend-item" style="margin-left:auto;font-size:0.6rem;color:#333">Binance · 1m klines + live</div>
+  </div>
+  <div id="btc-chart"></div>
+</div>
+
+<!-- YES/NO Probability Chart -->
 <div id="chart-wrap">
   <div id="chart-legend">
     <div class="legend-item"><div class="legend-dot yes"></div> YES (Up) best ask</div>
@@ -138,6 +170,148 @@
   const { createClient } = supabase;
   const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+  // ── BTC Chart setup ───────────────────────────────────────
+  const btcChartEl = document.getElementById('btc-chart');
+  const btcChart = LightweightCharts.createChart(btcChartEl, {
+    width: btcChartEl.parentElement.clientWidth - 28,
+    height: 180,
+    layout: { background: { color: '#0f0f0f' }, textColor: '#666' },
+    grid: { vertLines: { color: '#141414' }, horzLines: { color: '#141414' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: '#1e1e1e' },
+    timeScale: {
+      borderColor: '#1e1e1e',
+      timeVisible: true,
+      secondsVisible: true,
+      tickMarkFormatter: (time) => {
+        const ms = Math.round((time % 1) * 1000);
+        const d  = new Date(Math.floor(time) * 1000 + ms);
+        const h  = String(d.getUTCHours()).padStart(2, '0');
+        const m  = String(d.getUTCMinutes()).padStart(2, '0');
+        const s  = String(d.getUTCSeconds()).padStart(2, '0');
+        const ms3 = String(d.getUTCMilliseconds()).padStart(3, '0');
+        return `${h}:${m}:${s}.${ms3}`;
+      },
+    },
+    handleScroll: true,
+    handleScale: true,
+  });
+  const btcSeries = btcChart.addLineSeries({
+    color: '#f0a500', lineWidth: 1,
+    title: 'BTC', lastValueVisible: true, priceLineVisible: false,
+  });
+  window.addEventListener('resize', () => {
+    btcChart.applyOptions({ width: btcChartEl.parentElement.clientWidth - 28 });
+  });
+
+  let btcPriceToBeat = null;
+  let btcPriceTooBeatLine = null;
+  let currentBtcPrice = null;
+  let _upAsk = null;
+  let _downAsk = null;
+  let _binanceWs = null;
+
+  async function loadBtcChart() {
+    if (!activeMarket) return;
+    const startMs = activeMarket.window_ts * 1000;
+    try {
+      const resp = await fetch(
+        `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=${startMs}&limit=6`
+      );
+      const klines = await resp.json();
+      if (!klines.length) return;
+
+      btcPriceToBeat = parseFloat(klines[0][1]); // open of first 1m candle = 5m open
+      document.getElementById('btc-open-display').textContent = `Open: $${btcPriceToBeat.toLocaleString('en-US', {maximumFractionDigits:0})}`;
+
+      // Remove old price-to-beat line
+      if (btcPriceTooBeatLine) { try { btcSeries.removePriceLine(btcPriceTooBeatLine); } catch(e){} }
+      btcPriceTooBeatLine = btcSeries.createPriceLine({
+        price: btcPriceToBeat,
+        color: '#555',
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: 'Open',
+      });
+
+      // Seed chart with historical klines (close price, fractional seconds for ms axis)
+      const chartData = klines.map(k => ({
+        time: k[0] / 1000,
+        value: parseFloat(k[4]),
+      }));
+      btcSeries.setData(chartData);
+    } catch(e) {
+      console.warn('BTC chart load failed:', e);
+    }
+  }
+
+  function connectBinanceWs() {
+    if (_binanceWs) { try { _binanceWs.close(); } catch(e){} }
+    const ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@aggTrade');
+    _binanceWs = ws;
+    ws.onmessage = (e) => {
+      const d = JSON.parse(e.data);
+      currentBtcPrice = parseFloat(d.p);   // aggTrade: p = price, T = trade time ms
+      const time = d.T / 1000;             // fractional seconds → ms precision on axis
+      btcSeries.update({ time, value: currentBtcPrice });
+      document.getElementById('btc-price-live').textContent =
+        '$' + currentBtcPrice.toLocaleString('en-US', { maximumFractionDigits: 0 });
+      if (btcPriceToBeat) {
+        const delta = currentBtcPrice - btcPriceToBeat;
+        const pct = (delta / btcPriceToBeat * 100).toFixed(2);
+        const sign = delta >= 0 ? '+' : '';
+        const el = document.getElementById('btc-delta-display');
+        el.textContent = `${sign}$${delta.toFixed(0)} (${sign}${pct}%)`;
+        el.style.color = delta >= 0 ? '#3ecf8e' : '#f04040';
+      }
+      checkDivergence();
+    };
+    ws.onclose = () => {
+      // Reconnect after 5s unless page is unloading
+      setTimeout(() => { if (document.visibilityState !== 'hidden') connectBinanceWs(); }, 5000);
+    };
+  }
+
+  function checkDivergence() {
+    if (btcPriceToBeat === null || currentBtcPrice === null || _upAsk === null || _downAsk === null) return;
+
+    const banner = document.getElementById('divergence-banner');
+    const wrap   = document.getElementById('btc-chart-wrap');
+    const noBox  = document.querySelector('.price-box.no');
+    const yesBox = document.querySelector('.price-box.yes');
+
+    const btcBearish = currentBtcPrice < btcPriceToBeat;
+    const btcBullish = currentBtcPrice > btcPriceToBeat;
+    const noLagging  = _downAsk <= 0.50;   // NO cheap despite BTC falling
+    const yesLagging = _upAsk  <= 0.50;    // YES cheap despite BTC rising
+
+    if (btcBearish && noLagging) {
+      banner.className = '';
+      banner.style.display = 'block';
+      banner.textContent =
+        `⚠ DIVERGENCE: BTC ↓ $${currentBtcPrice.toFixed(0)} below open $${btcPriceToBeat.toFixed(0)}`
+        + ` — but NO only ${(_downAsk*100).toFixed(0)}% (market hasn't priced the drop)`;
+      wrap.style.borderColor = '#f0a50066';
+      noBox.classList.add('warn');
+      yesBox.classList.remove('warn');
+    } else if (btcBullish && yesLagging) {
+      banner.className = 'bullish';
+      banner.style.display = 'block';
+      banner.textContent =
+        `⚠ DIVERGENCE: BTC ↑ $${currentBtcPrice.toFixed(0)} above open $${btcPriceToBeat.toFixed(0)}`
+        + ` — but YES only ${(_upAsk*100).toFixed(0)}% (market hasn't priced the rise)`;
+      wrap.style.borderColor = '#3ecf8e66';
+      yesBox.classList.add('warn');
+      noBox.classList.remove('warn');
+    } else {
+      banner.style.display = 'none';
+      wrap.style.borderColor = '#1e1e1e';
+      noBox.classList.remove('warn');
+      yesBox.classList.remove('warn');
+    }
+  }
+
   // ── Chart setup ───────────────────────────────────────────
   const LC = LightweightCharts;
   const chartEl = document.getElementById('chart');
@@ -189,6 +363,21 @@
     priceLineVisible: false,
   });
 
+  // ── Fixed Y range (0–100) + threshold guide lines ─────────
+  const fixedRange = () => ({ priceRange: { minValue: 0, maxValue: 100 } });
+  upSeries.applyOptions({ autoscaleInfoProvider: fixedRange });
+  downSeries.applyOptions({ autoscaleInfoProvider: fixedRange });
+  [60, 70, 80, 90].forEach(level => {
+    upSeries.createPriceLine({
+      price: level,
+      color: '#2a2a2a',
+      lineWidth: 1,
+      lineStyle: LC.LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: `${level}¢`,
+    });
+  });
+
   // Resize chart on window resize
   window.addEventListener('resize', () => {
     chart.applyOptions({ width: chartEl.parentElement.clientWidth - 28 });
@@ -204,6 +393,7 @@
     await loadHistory();
     subscribeRealtime();
     tickCountdown();
+    connectBinanceWs();
   }
 
   // ── Active Market ─────────────────────────────────────────
@@ -219,10 +409,20 @@
 
     // Reset chart and state for new market
     traderTrades = [];
+    btcPriceToBeat = null;
+    currentBtcPrice = null;
+    _upAsk = null;
+    _downAsk = null;
+    btcSeries.setData([]);
+    document.getElementById('btc-open-display').textContent = 'Open: —';
+    document.getElementById('btc-delta-display').textContent = '—';
+    document.getElementById('divergence-banner').style.display = 'none';
+    document.getElementById('btc-chart-wrap').style.borderColor = '#1e1e1e';
 
     await Promise.all([
       loadChartData(),
       loadTraderTrades(),
+      loadBtcChart(),
     ]);
   }
 
@@ -341,14 +541,14 @@
 
   // ── Price display ─────────────────────────────────────────
   function updatePriceDisplay(row) {
-    document.getElementById('up-price').textContent   = (row.up_best_ask   * 100).toFixed(1) + '¢';
-    document.getElementById('down-price').textContent = (row.down_best_ask * 100).toFixed(1) + '¢';
-    setStatus(new Date(row.ts).toLocaleTimeString('en-US', { 
-      hour12: false, 
-      hour: '2-digit', 
-      minute: '2-digit', 
-      second: '2-digit' 
+    _upAsk   = row.up_best_ask;
+    _downAsk = row.down_best_ask;
+    document.getElementById('up-price').textContent   = (_upAsk   * 100).toFixed(1) + '¢';
+    document.getElementById('down-price').textContent = (_downAsk * 100).toFixed(1) + '¢';
+    setStatus(new Date(row.ts).toLocaleTimeString('en-US', {
+      hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
     }));
+    checkDivergence();
   }
 
   // ── History ───────────────────────────────────────────────

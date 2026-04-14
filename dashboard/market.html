@@ -15,10 +15,31 @@
     .nav { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
     .back { font-size: 0.75rem; color: #555; text-decoration: none; padding: 5px 12px; border: 1px solid #2a2a2a; border-radius: 6px; transition: color .15s, border-color .15s; }
     .back:hover { color: #aaa; border-color: #444; }
-    .nav-slug { font-size: 1rem; color: #fff; }
     .nav-meta { font-size: 0.72rem; color: #444; margin-left: auto; }
     .status-badge { font-size: 0.65rem; padding: 3px 10px; border-radius: 20px; background: #1a1a1a; border: 1px solid #2a2a2a; color: #888; }
     .status-badge.live { border-color: #3ecf8e44; color: #3ecf8e; }
+
+    /* ── Slug copy ── */
+    #nav-slug {
+      font-size: 0.82rem; color: #666; cursor: pointer;
+      padding: 4px 8px; border-radius: 4px; transition: background .15s, color .15s;
+      user-select: all;
+    }
+    #nav-slug:hover { background: #1a1a1a; color: #ccc; }
+    #nav-slug.copied { color: #3ecf8e; }
+
+    /* ── Market select ── */
+    #market-select {
+      font-family: inherit; font-size: 0.85rem; color: #fff;
+      background: #111; border: 1px solid #2a2a2a; border-radius: 6px;
+      padding: 5px 28px 5px 10px; cursor: pointer; outline: none;
+      appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23555'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center;
+      transition: border-color .15s;
+    }
+    #market-select:hover { border-color: #444; }
+    #market-select option { background: #111; color: #e0e0e0; }
 
     /* ── Summary row ── */
     .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
@@ -27,14 +48,23 @@
     .stat-card .val { font-size: 1.6rem; font-weight: 700; color: #fff; }
     .stat-card .sub { font-size: 0.65rem; color: #333; margin-top: 3px; }
 
-    /* ── Chart ── */
+    /* ── Charts ── */
+    #btc-chart-wrap { background: #0f0f0f; border: 1px solid #1e1e1e; border-radius: 10px; padding: 14px 14px 0; margin-bottom: 10px; }
+    #btc-chart-legend { display: flex; gap: 16px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
     #chart-wrap { background: #0f0f0f; border: 1px solid #1e1e1e; border-radius: 10px; padding: 14px 14px 0; margin-bottom: 16px; }
     #chart-legend { display: flex; gap: 18px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
     .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; color: #555; }
     .legend-dot { width: 10px; height: 2px; border-radius: 1px; }
     .legend-dot.yes { background: #3ecf8e; }
     .legend-dot.no  { background: #f04040; }
+    #btc-chart { width: 100%; height: 180px; }
     #chart { width: 100%; height: 380px; }
+
+    /* ── Divergence timeline items ── */
+    .tl-dot.divergence-bearish { background: #f0a500; }
+    .tl-dot.divergence-bullish { background: #3ecf8e; }
+    .tl-tag.divergence-bearish { background: #f0a50022; color: #f0a500; }
+    .tl-tag.divergence-bullish { background: #3ecf8e22; color: #3ecf8e; }
 
     /* ── Panels ── */
     .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -70,6 +100,14 @@
     .scroll-wrap { max-height: 260px; overflow-y: auto; }
     .scroll-wrap table th { position: sticky; top: 0; background: #111; }
 
+    /* ── Polymarket link ── */
+    #polymarket-link {
+      display: flex; align-items: center;
+      opacity: 0.35; transition: opacity .15s;
+    }
+    #polymarket-link:hover { opacity: 1; }
+    #polymarket-link img { width: 18px; height: 18px; border-radius: 4px; }
+
     /* ── Empty ── */
     .empty { color: #2a2a2a; font-size: 0.75rem; padding: 10px 0; }
 
@@ -80,12 +118,35 @@
 
 <div class="nav">
   <a class="back" href="index.html">← Back</a>
-  <span class="nav-slug" id="nav-slug">Loading...</span>
+  <select id="market-select" onchange="window.location='market.html?slug='+this.value">
+    <option value="">Loading...</option>
+  </select>
+  <span id="nav-slug" title="Click to copy" onclick="
+    navigator.clipboard.writeText(this.textContent.trim());
+    this.classList.add('copied');
+    this.textContent = '✓ copied';
+    setTimeout(() => { this.classList.remove('copied'); this.textContent = slug; }, 1500);
+  ">—</span>
+  <a id="polymarket-link" href="#" target="_blank" rel="noopener" title="Open on Polymarket">
+    <img src="https://polymarket.com/favicon.ico" alt="Polymarket" />
+  </a>
   <span class="status-badge" id="status-badge">—</span>
   <span class="nav-meta" id="nav-meta"></span>
 </div>
 
-<!-- Chart -->
+<!-- BTC Price Chart -->
+<div id="btc-chart-wrap">
+  <div id="btc-chart-legend">
+    <div class="legend-item" style="color:#f0a500;font-weight:700">₿ BTC/USDT</div>
+    <div class="legend-item" id="btc-open-display" style="color:#555">Open: —</div>
+    <div class="legend-item" id="btc-close-display" style="color:#555">Close: —</div>
+    <div class="legend-item" id="btc-delta-display" style="color:#555">—</div>
+    <div class="legend-item" style="margin-left:auto;font-size:0.6rem;color:#2a2a2a">Binance · 1m klines</div>
+  </div>
+  <div id="btc-chart"></div>
+</div>
+
+<!-- YES/NO Probability Chart -->
 <div id="chart-wrap">
   <div id="chart-legend">
     <div class="legend-item"><div class="legend-dot yes"></div> YES (Up) best ask</div>
@@ -123,6 +184,66 @@
   const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const LC = LightweightCharts;
 
+  // ── BTC Chart ─────────────────────────────────────────────
+  const btcChartEl = document.getElementById('btc-chart');
+  const btcChart = LC.createChart(btcChartEl, {
+    width: btcChartEl.parentElement.clientWidth - 28,
+    height: 180,
+    layout: { background: { color: '#0f0f0f' }, textColor: '#666' },
+    grid: { vertLines: { color: '#141414' }, horzLines: { color: '#141414' } },
+    rightPriceScale: { borderColor: '#1e1e1e' },
+    timeScale: { borderColor: '#1e1e1e', timeVisible: true, secondsVisible: false },
+  });
+  const btcSeries = btcChart.addLineSeries({
+    color: '#f0a500', lineWidth: 1,
+    title: 'BTC', lastValueVisible: true, priceLineVisible: false,
+  });
+  window.addEventListener('resize', () => {
+    btcChart.applyOptions({ width: btcChartEl.parentElement.clientWidth - 28 });
+  });
+
+  async function loadBtcChart(market) {
+    const startMs = market.window_ts * 1000;
+    const endMs   = startMs + 5 * 60 * 1000 + 60 * 1000; // +1m buffer
+    try {
+      const resp = await fetch(
+        `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=${startMs}&endTime=${endMs}&limit=10`
+      );
+      const klines = await resp.json();
+      if (!klines.length) return;
+
+      const openPrice  = parseFloat(klines[0][1]);
+      const closePrice = parseFloat(klines[klines.length - 1][4]);
+      const delta = closePrice - openPrice;
+      const pct   = (delta / openPrice * 100).toFixed(2);
+      const sign  = delta >= 0 ? '+' : '';
+
+      document.getElementById('btc-open-display').textContent  = `Open: $${openPrice.toLocaleString('en-US',{maximumFractionDigits:0})}`;
+      document.getElementById('btc-close-display').textContent = `Close: $${closePrice.toLocaleString('en-US',{maximumFractionDigits:0})}`;
+      const deltaEl = document.getElementById('btc-delta-display');
+      deltaEl.textContent = `${sign}$${delta.toFixed(0)} (${sign}${pct}%)`;
+      deltaEl.style.color = delta >= 0 ? '#3ecf8e' : '#f04040';
+
+      // Price-to-beat line at open
+      btcSeries.createPriceLine({
+        price: openPrice,
+        color: '#555',
+        lineWidth: 1,
+        lineStyle: LC.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: 'Open',
+      });
+
+      btcSeries.setData(klines.map(k => ({
+        time: Math.floor(k[0] / 1000),
+        value: parseFloat(k[4]),
+      })));
+      btcChart.timeScale().fitContent();
+    } catch(e) {
+      console.warn('BTC chart load failed:', e);
+    }
+  }
+
   // ── Read slug from URL ─────────────────────────────────────
   const slug = new URLSearchParams(window.location.search).get('slug');
   if (!slug) { document.body.innerHTML = '<p style="padding:40px;color:#f04040">No slug provided. <a href="index.html" style="color:#3ecf8e">← Back</a></p>'; throw new Error('no slug'); }
@@ -159,12 +280,29 @@
     title: 'NO', lastValueVisible: true, priceLineVisible: false,
   });
 
+  // ── Fixed Y range (0–100) + threshold guide lines ─────────
+  const fixedRange = () => ({ priceRange: { minValue: 0, maxValue: 100 } });
+  upSeries.applyOptions({ autoscaleInfoProvider: fixedRange });
+  downSeries.applyOptions({ autoscaleInfoProvider: fixedRange });
+  [60, 70, 80, 90].forEach(level => {
+    upSeries.createPriceLine({
+      price: level,
+      color: '#2a2a2a',
+      lineWidth: 1,
+      lineStyle: LC.LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: `${level}¢`,
+    });
+  });
+
   // ── Boot ──────────────────────────────────────────────────
   async function boot() {
-    const [market, snapshots, traderTrades] = await Promise.all([
+    const [market, snapshots, traderTrades, divergenceAlerts] = await Promise.all([
       loadMarket(),
       loadSnapshots(),
       loadTraderTrades(),
+      loadDivergenceAlerts(),
+      loadMarketDropdown(),
     ]);
 
     if (!market) {
@@ -175,10 +313,25 @@
     renderHeader(market);
     renderChart(snapshots, traderTrades);
     renderTraderTable(traderTrades);
-    renderTimeline(traderTrades);
+    renderTimeline(traderTrades, divergenceAlerts);
+    await loadBtcChart(market);
 
-    // Subscribe for live updates if this market is still active
     if (market.active) subscribeRealtime();
+  }
+
+  // ── Market dropdown ───────────────────────────────────────
+  async function loadMarketDropdown() {
+    const { data: markets } = await db.from('markets')
+      .select('slug, active')
+      .order('window_ts', { ascending: false })
+      .limit(100);
+    if (!markets?.length) return;
+    const sel = document.getElementById('market-select');
+    sel.innerHTML = markets.map(m =>
+      `<option value="${m.slug}" ${m.slug === slug ? 'selected' : ''}>
+        ${m.active ? '● ' : ''}${m.slug}${m.active ? ' (live)' : ''}
+      </option>`
+    ).join('');
   }
 
   // ── Data loaders ──────────────────────────────────────────
@@ -204,15 +357,23 @@
     return data || [];
   }
 
+  async function loadDivergenceAlerts() {
+    const { data } = await db.from('btc_divergence_alerts')
+      .select('*')
+      .eq('market_slug', slug)
+      .order('ts', { ascending: true });
+    return data || [];
+  }
+
   // ── Renders ───────────────────────────────────────────────
   function renderHeader(m) {
     document.title = `${m.slug} — Polymarket BTC 5m`;
     document.getElementById('nav-slug').textContent = m.slug;
+    document.getElementById('polymarket-link').href = `https://polymarket.com/event/${m.slug}`;
     const badge = document.getElementById('status-badge');
     badge.textContent = m.active ? '● LIVE' : '✓ Closed';
     if (m.active) badge.classList.add('live');
-    document.getElementById('nav-meta').textContent =
-      `${new Date(m.end_time).toLocaleString()}`;
+    document.getElementById('nav-meta').textContent = new Date(m.end_time).toLocaleString();
   }
 
   function renderChart(snapshots, traderTrades) {
@@ -268,45 +429,77 @@
     }).join('');
   }
 
-  function renderTimeline(traderTrades) {
+  function renderTimeline(traderTrades, divergenceAlerts = []) {
     const tl = document.getElementById('timeline');
-    if (!traderTrades.length) { tl.innerHTML = '<div class="empty">No trades yet</div>'; return; }
 
-    tl.innerHTML = [...traderTrades].sort((a, b) => new Date(a.ts) - new Date(b.ts)).map(t => {
-      const isBuy = t.side === 'BUY';
-      const time = new Date(t.ts).toLocaleTimeString('en-US', {hour12:false});
-      const tag = `<span class="tl-tag ${isBuy ? 'trade' : 'trade-sell'}">${t.side}</span>`;
-      const txShort = t.transaction_hash ? `${t.transaction_hash.slice(0,8)}…${t.transaction_hash.slice(-6)}` : null;
-      const txLink = txShort ? ` · <a href="https://polygonscan.com/tx/${t.transaction_hash}" target="_blank" rel="noopener" style="color:#555;text-decoration:none" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">${txShort}</a>` : '';
-      const desc = `${t.outcome} @ ${(t.price * 100).toFixed(1)}¢ · size ${parseFloat(t.size).toFixed(2)} USDC${txLink}`;
-      return `<div class="tl-item">
-        <div class="tl-dot ${isBuy ? 'trade-buy' : 'trade-sell'}"></div>
-        <span class="tl-time">${time}</span>
-        <div class="tl-body">${tag}${desc}</div>
-      </div>`;
+    // Build unified event list
+    const events = [
+      ...traderTrades.map(t => ({ ts: t.ts, type: 'trade', data: t })),
+      ...divergenceAlerts.map(a => ({ ts: a.ts, type: 'divergence', data: a })),
+    ].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+
+    if (!events.length) { tl.innerHTML = '<div class="empty">No events yet</div>'; return; }
+
+    tl.innerHTML = events.map(ev => {
+      const time = new Date(ev.ts).toLocaleTimeString('en-US', { hour12: false });
+      if (ev.type === 'trade') {
+        const t = ev.data;
+        const isBuy = t.side === 'BUY';
+        const tag = `<span class="tl-tag ${isBuy ? 'trade' : 'trade-sell'}">${t.side}</span>`;
+        const txShort = t.transaction_hash ? `${t.transaction_hash.slice(0,8)}…${t.transaction_hash.slice(-6)}` : null;
+        const txLink = txShort
+          ? ` · <a href="https://polygonscan.com/tx/${t.transaction_hash}" target="_blank" rel="noopener" style="color:#555;text-decoration:none" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">${txShort}</a>`
+          : '';
+        return `<div class="tl-item">
+          <div class="tl-dot ${isBuy ? 'trade-buy' : 'trade-sell'}"></div>
+          <span class="tl-time">${time}</span>
+          <div class="tl-body">${tag}${t.outcome} @ ${(t.price*100).toFixed(1)}¢ · ${parseFloat(t.size).toFixed(2)} USDC${txLink}</div>
+        </div>`;
+      } else {
+        const a = ev.data;
+        const cls = `divergence-${a.direction}`;
+        const arrow = a.direction === 'bearish' ? '↓' : '↑';
+        const label = a.direction === 'bearish' ? 'BEARISH DIV' : 'BULLISH DIV';
+        const desc = `BTC ${arrow} $${a.btc_price.toFixed(0)} vs open $${a.price_to_beat.toFixed(0)}`
+          + ` · YES ${(a.up_best_ask*100).toFixed(0)}% NO ${(a.down_best_ask*100).toFixed(0)}%`;
+        return `<div class="tl-item">
+          <div class="tl-dot ${cls}"></div>
+          <span class="tl-time">${time}</span>
+          <div class="tl-body"><span class="tl-tag ${cls}">${label}</span>${desc}</div>
+        </div>`;
+      }
     }).join('');
   }
 
   // ── Realtime (only for active markets) ───────────────────
   let _traderTrades = [];
+  let _divergenceAlerts = [];
 
   function subscribeRealtime() {
+    // Seed local copies for incremental updates
     db.from('trader_trades').select('*').eq('market_slug', slug).order('ts', { ascending: true })
       .then(({ data }) => { _traderTrades = data || []; });
+    db.from('btc_divergence_alerts').select('*').eq('market_slug', slug).order('ts', { ascending: true })
+      .then(({ data }) => { _divergenceAlerts = data || []; });
 
     db.channel(`market-${slug}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'price_snapshots',
           filter: `market_slug=eq.${slug}` }, ({ new: row }) => {
         const time = new Date(row.ts).getTime() / 1000;
-        upSeries.update({time, value: parseFloat((row.up_best_ask*100).toFixed(2))});
-        downSeries.update({time, value: parseFloat((row.down_best_ask*100).toFixed(2))});
+        upSeries.update({ time, value: parseFloat((row.up_best_ask*100).toFixed(2)) });
+        downSeries.update({ time, value: parseFloat((row.down_best_ask*100).toFixed(2)) });
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'trader_trades',
           filter: `market_slug=eq.${slug}` }, ({ new: row }) => {
         _traderTrades.push(row);
         renderTraderTable(_traderTrades);
-        renderTimeline(_traderTrades);
+        renderTimeline(_traderTrades, _divergenceAlerts);
         renderChart([], _traderTrades);
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'btc_divergence_alerts',
+          filter: `market_slug=eq.${slug}` }, ({ new: row }) => {
+        _divergenceAlerts.push(row);
+        renderTimeline(_traderTrades, _divergenceAlerts);
       })
       .subscribe();
   }

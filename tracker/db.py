@@ -66,6 +66,24 @@ def insert_trader_trade(
         log.error(f"[DB] insert_trader_trade failed: {e}")
 
 
+def insert_btc_divergence_alert(
+    market_slug: str, ts: str, btc_price: float, price_to_beat: float,
+    direction: str, up_best_ask: float, down_best_ask: float
+) -> None:
+    try:
+        _client.table("btc_divergence_alerts").insert({
+            "market_slug":   market_slug,
+            "ts":            ts,
+            "btc_price":     btc_price,
+            "price_to_beat": price_to_beat,
+            "direction":     direction,
+            "up_best_ask":   up_best_ask,
+            "down_best_ask": down_best_ask,
+        }).execute()
+    except Exception as e:
+        log.error(f"[DB] insert_btc_divergence_alert failed: {e}")
+
+
 def update_market_final(slug: str, active: bool = False) -> None:
     try:
         _client.table("markets").update({"active": active}).eq("slug", slug).execute()
