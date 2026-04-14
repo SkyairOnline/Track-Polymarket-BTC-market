@@ -29,7 +29,7 @@
     .legend-dot.yes { background: #3ecf8e; }
     .legend-dot.no  { background: #f04040; }
     .legend-icon { font-size: 0.8rem; }
-    #btc-chart { width: 100%; height: 180px; }
+    #btc-chart { width: 100%; height: 360px; }
     #chart { width: 100%; height: 360px; }
 
     /* ── Divergence banner ── */
@@ -174,7 +174,7 @@
   const btcChartEl = document.getElementById('btc-chart');
   const btcChart = LightweightCharts.createChart(btcChartEl, {
     width: btcChartEl.parentElement.clientWidth - 28,
-    height: 180,
+    height: 360,
     layout: { background: { color: '#0f0f0f' }, textColor: '#666' },
     grid: { vertLines: { color: '#141414' }, horzLines: { color: '#141414' } },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
@@ -386,6 +386,8 @@
   // ── State ─────────────────────────────────────────────────
   let activeMarket = null;
   let traderTrades = []; // all trades for current market
+  let _polyWs = null;
+  let _polyBook = {}; // token_id → { best_ask }
 
   // ── Boot ─────────────────────────────────────────────────
   async function boot() {
@@ -409,6 +411,7 @@
 
     // Reset chart and state for new market
     traderTrades = [];
+    _polyBook = {};
     btcPriceToBeat = null;
     currentBtcPrice = null;
     _upAsk = null;
@@ -424,6 +427,7 @@
       loadTraderTrades(),
       loadBtcChart(),
     ]);
+    connectPolymarketWs();
   }
 
   // ── Chart Data ────────────────────────────────────────────
@@ -460,12 +464,79 @@
       .map(([time, value]) => ({ time, value }));
   }
 
-  function appendChartPoint(row) {
-    const timestampMs = new Date(row.ts).getTime();
-    const time = timestampMs / 1000;
+  // ── Polymarket WS (live price source) ────────────────────
+  function connectPolymarketWs() {
+    if (_polyWs) { try { _polyWs.close(); } catch(e){} }
+    if (!activeMarket) return;
 
-    upSeries.update({ time: time, value: parseFloat((row.up_best_ask * 100).toFixed(2)) });
-    downSeries.update({ time: time, value: parseFloat((row.down_best_ask * 100).toFixed(2)) });
+    const ws = new WebSocket('wss://ws-subscriptions-clob.polymarket.com/ws/market');
+    _polyWs = ws;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        type: 'market',
+        assets_ids: [activeMarket.up_token_id, activeMarket.down_token_id],
+      }));
+      ws._ping = setInterval(() => { if (ws.readyState === WebSocket.OPEN) ws.send('PING'); }, 10000);
+    };
+
+    ws.onmessage = (e) => {
+      if (e.data === 'PONG') return;
+      let msgs;
+      try { msgs = JSON.parse(e.data); } catch { return; }
+      if (!Array.isArray(msgs)) msgs = [msgs];
+      msgs.forEach(onPolyEvent);
+    };
+
+    ws.onclose = () => {
+      clearInterval(ws._ping);
+      setTimeout(() => { if (activeMarket) connectPolymarketWs(); }, 5000);
+    };
+  }
+
+  function onPolyEvent(ev) {
+    if (!activeMarket) return;
+    const etype   = ev.event_type || ev.type || '';
+    const assetId = ev.asset_id   || ev.token_id || '';
+    if (assetId !== activeMarket.up_token_id && assetId !== activeMarket.down_token_id) return;
+
+    if (etype === 'book') {
+      const asks = (ev.asks || ev.sells || []).filter(a => parseFloat(a.size) > 0);
+      if (!asks.length) return;
+      const bestAsk = Math.min(...asks.map(a => parseFloat(a.price)));
+      (_polyBook[assetId] ??= {}).best_ask = bestAsk;
+      pushPolyToChart();
+    } else if (etype === 'best_bid_ask' && ev.best_ask != null) {
+      // This event carries best_ask directly — use it without a REST round-trip
+      (_polyBook[assetId] ??= {}).best_ask = parseFloat(ev.best_ask);
+      pushPolyToChart();
+    } else if (['price_change', 'tick'].includes(etype)) {
+      fetchPolyBook(assetId);
+    }
+  }
+
+  async function fetchPolyBook(tokenId) {
+    try {
+      const r = await fetch(`https://clob.polymarket.com/book?token_id=${tokenId}`);
+      const data = await r.json();
+      const asks = (data.asks || []).filter(a => parseFloat(a.size) > 0);
+      if (!asks.length) return;
+      const bestAsk = Math.min(...asks.map(a => parseFloat(a.price)));
+      (_polyBook[tokenId] ??= {}).best_ask = bestAsk;
+      pushPolyToChart();
+    } catch(e) {}
+  }
+
+  function pushPolyToChart() {
+    if (!activeMarket) return;
+    const upAsk   = _polyBook[activeMarket.up_token_id]?.best_ask;
+    const downAsk = _polyBook[activeMarket.down_token_id]?.best_ask;
+    if (upAsk == null || downAsk == null) return;
+
+    const time = Date.now() / 1000;
+    upSeries.update({ time, value: parseFloat((upAsk   * 100).toFixed(2)) });
+    downSeries.update({ time, value: parseFloat((downAsk * 100).toFixed(2)) });
+    updatePriceDisplay({ up_best_ask: upAsk, down_best_ask: downAsk, ts: new Date().toISOString() });
   }
 
   // ── Trade Markers ─────────────────────────────────────────
@@ -563,14 +634,10 @@
   }
 
   // ── Realtime ──────────────────────────────────────────────
+  // price_snapshots are no longer the live chart source — Polymarket WS handles that.
+  // We keep realtime for trader_trades and market transitions only.
   function subscribeRealtime() {
     db.channel('tracker')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'price_snapshots' }, ({ new: row }) => {
-        if (activeMarket && row.market_slug === activeMarket.slug) {
-          updatePriceDisplay(row);
-          appendChartPoint(row);
-        }
-      })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'trader_trades' }, ({ new: row }) => {
         if (activeMarket && row.market_slug === activeMarket.slug) {
           addTraderTrade(row);
