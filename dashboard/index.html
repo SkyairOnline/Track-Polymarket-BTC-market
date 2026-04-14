@@ -125,8 +125,8 @@
   <div class="card full">
     <h2>Trader Activity — 0x7347d3...8c3d35</h2>
     <table>
-      <thead><tr><th>Time</th><th>Side</th><th>Outcome</th><th>Price</th><th>Size (USDC)</th><th>Role</th></tr></thead>
-      <tbody id="trader-body"><tr><td colspan="6" style="color:#2a2a2a">No trades yet this market</td></tr></tbody>
+      <thead><tr><th>Time</th><th>Side</th><th>Outcome</th><th>Price</th><th>Size (USDC)</th><th>Role</th><th>Tx</th></tr></thead>
+      <tbody id="trader-body"><tr><td colspan="7" style="color:#2a2a2a">No trades yet this market</td></tr></tbody>
     </table>
   </div>
 
@@ -333,6 +333,10 @@
       const isBuy = t.side === 'BUY';
       const isUp  = t.outcome === 'Up';
       const color = isBuy ? (isUp ? '#3ecf8e' : '#f04040') : '#666';
+      const txShort = t.transaction_hash ? `${t.transaction_hash.slice(0,8)}…${t.transaction_hash.slice(-6)}` : '—';
+      const txLink = t.transaction_hash
+        ? `<a href="https://polygonscan.com/tx/${t.transaction_hash}" target="_blank" rel="noopener" style="color:#555;text-decoration:none;font-size:0.7rem" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">${txShort}</a>`
+        : '—';
       return `<tr style="color:${color}">
         <td>${new Date(t.ts).toLocaleTimeString()}</td>
         <td><b>${t.side}</b></td>
@@ -340,6 +344,7 @@
         <td>${(t.price * 100).toFixed(1)}¢</td>
         <td>${parseFloat(t.size).toFixed(2)}</td>
         <td style="color:#444">${t.role}</td>
+        <td>${txLink}</td>
       </tr>`;
     }).join('');
   }

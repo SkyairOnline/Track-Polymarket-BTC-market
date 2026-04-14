@@ -122,8 +122,8 @@
     <h2>Trader Activity — 0x7347d3...8c3d35</h2>
     <div class="scroll-wrap">
       <table>
-        <thead><tr><th>Time</th><th>Side</th><th>Outcome</th><th>Price</th><th>Size</th></tr></thead>
-        <tbody id="trader-body"><tr><td colspan="5" class="empty">No trades</td></tr></tbody>
+        <thead><tr><th>Time</th><th>Side</th><th>Outcome</th><th>Price</th><th>Size</th><th>Tx</th></tr></thead>
+        <tbody id="trader-body"><tr><td colspan="6" class="empty">No trades</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -324,16 +324,21 @@
 
   function renderTraderTable(trades) {
     const tbody = document.getElementById('trader-body');
-    if (!trades.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">No trades</td></tr>'; return; }
+    if (!trades.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No trades</td></tr>'; return; }
     tbody.innerHTML = [...trades].reverse().map(t => {
       const isBuy = t.side === 'BUY', isUp = t.outcome === 'Up';
       const color = isBuy ? (isUp ? '#3ecf8e' : '#f04040') : '#666';
+      const txShort = t.transaction_hash ? `${t.transaction_hash.slice(0,8)}…${t.transaction_hash.slice(-6)}` : '—';
+      const txLink = t.transaction_hash
+        ? `<a href="https://polygonscan.com/tx/${t.transaction_hash}" target="_blank" rel="noopener" style="color:#555;text-decoration:none;font-size:0.7rem" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">${txShort}</a>`
+        : '—';
       return `<tr style="color:${color}">
         <td>${new Date(t.ts).toLocaleTimeString('en-US', {hour12:false})}</td>
         <td><b>${t.side}</b></td>
         <td>${t.outcome}</td>
         <td>${(t.price * 100).toFixed(1)}¢</td>
         <td>${parseFloat(t.size).toFixed(2)}</td>
+        <td>${txLink}</td>
       </tr>`;
     }).join('');
   }
@@ -350,7 +355,7 @@
     if (!events.length) { tl.innerHTML = '<div class="empty">No events yet</div>'; return; }
 
     tl.innerHTML = events.map(({ ts, type, data }) => {
-      const time = new Date(ev.ts).toLocaleTimeString('en-US', {hour12:false});
+      const time = new Date(ts).toLocaleTimeString('en-US', {hour12:false});
       let dotClass, tag, desc;
 
       if (type === 'anomaly') {
@@ -361,7 +366,9 @@
         const isBuy = data.side === 'BUY';
         dotClass = isBuy ? 'trade-buy' : 'trade-sell';
         tag = `<span class="tl-tag ${isBuy ? 'trade' : 'trade-sell'}">${data.side}</span>`;
-        desc = `${data.outcome} @ ${(data.price * 100).toFixed(1)}¢ · size ${parseFloat(data.size).toFixed(2)} USDC (${data.role})`;
+        const txShort = data.transaction_hash ? `${data.transaction_hash.slice(0,8)}…${data.transaction_hash.slice(-6)}` : null;
+        const txLink = txShort ? ` · <a href="https://polygonscan.com/tx/${data.transaction_hash}" target="_blank" rel="noopener" style="color:#555;text-decoration:none" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">${txShort}</a>` : '';
+        desc = `${data.outcome} @ ${(data.price * 100).toFixed(1)}¢ · size ${parseFloat(data.size).toFixed(2)} USDC (${data.role})${txLink}`;
       }
 
       return `<div class="tl-item">
