@@ -361,11 +361,22 @@
     }
   }
 
+  let _binanceLastMsg = 0;
+
   function connectBinanceWs() {
     if (_binanceWs) { try { _binanceWs.close(); } catch(e){} }
     const ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@aggTrade');
     _binanceWs = ws;
+    _binanceLastMsg = Date.now();
+    ws._watchdog = setInterval(() => {
+      if (Date.now() - _binanceLastMsg > 5000) {
+        console.warn('Binance WS hang detected — reconnecting');
+        clearInterval(ws._watchdog);
+        ws.close();
+      }
+    }, 2000);
     ws.onmessage = (e) => {
+      _binanceLastMsg = Date.now();
       const d = JSON.parse(e.data);
       currentBtcPrice = parseFloat(d.p);   // aggTrade: p = price, T = trade time ms
       const time = d.T / 1000;             // fractional seconds → ms precision on axis
@@ -383,6 +394,7 @@
       checkDivergence();
     };
     ws.onclose = () => {
+      clearInterval(ws._watchdog);
       // Reconnect after 5s unless page is unloading
       setTimeout(() => { if (document.visibilityState !== 'hidden') connectBinanceWs(); }, 5000);
     };
@@ -580,6 +592,8 @@
       .map(([time, value]) => ({ time, value }));
   }
 
+  let _polyLastMsg = 0;
+
   // ── Polymarket WS (live price source) ────────────────────
   function connectPolymarketWs() {
     if (_polyWs) { try { _polyWs.close(); } catch(e){} }
@@ -587,6 +601,7 @@
 
     const ws = new WebSocket('wss://ws-subscriptions-clob.polymarket.com/ws/market');
     _polyWs = ws;
+    _polyLastMsg = Date.now();
 
     ws.onopen = () => {
       ws.send(JSON.stringify({
@@ -594,9 +609,18 @@
         assets_ids: [activeMarket.up_token_id, activeMarket.down_token_id],
       }));
       ws._ping = setInterval(() => { if (ws.readyState === WebSocket.OPEN) ws.send('PING'); }, 10000);
+      ws._watchdog = setInterval(() => {
+        if (Date.now() - _polyLastMsg > 5000) {
+          console.warn('Polymarket WS hang detected — reconnecting');
+          clearInterval(ws._ping);
+          clearInterval(ws._watchdog);
+          ws.close();
+        }
+      }, 2000);
     };
 
     ws.onmessage = (e) => {
+      _polyLastMsg = Date.now();
       if (e.data === 'PONG') return;
       let msgs;
       try { msgs = JSON.parse(e.data); } catch { return; }
@@ -606,6 +630,7 @@
 
     ws.onclose = () => {
       clearInterval(ws._ping);
+      clearInterval(ws._watchdog);
       setTimeout(() => { if (activeMarket) connectPolymarketWs(); }, 5000);
     };
   }
