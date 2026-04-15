@@ -34,11 +34,11 @@
 
     /* ── Divergence banner ── */
     #divergence-banner {
-      display: none; margin: 0 0 10px; padding: 8px 14px;
-      border-radius: 6px; border: 1px solid #f0a500;
+      display: none; padding: 3px 10px;
+      border-radius: 20px; border: 1px solid #f0a500;
       background: #f0a50015; color: #f0a500;
-      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;
-      animation: pulse-border 2s infinite;
+      font-size: 0.65rem; font-weight: 700; letter-spacing: 0.04em;
+      animation: pulse-border 2s infinite; white-space: nowrap;
     }
     #divergence-banner.bullish { border-color: #3ecf8e; background: #3ecf8e15; color: #3ecf8e; }
     @keyframes pulse-border { 0%,100%{opacity:1} 50%{opacity:.6} }
@@ -140,10 +140,8 @@
   <span class="pill live" id="live-pill">● LIVE</span>
   <span id="market-slug-header">—</span>
   <span id="countdown-header"></span>
+  <span id="divergence-banner"></span>
 </div>
-
-<!-- Divergence banner -->
-<div id="divergence-banner"></div>
 
 <!-- BTC Price Chart -->
 <div id="btc-chart-wrap">
