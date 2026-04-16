@@ -150,7 +150,7 @@
     <div class="legend-item" id="btc-price-live" style="color:#fff;font-size:0.85rem;font-weight:700">—</div>
     <div class="legend-item" id="btc-open-display" style="color:#555">Open: —</div>
     <div class="legend-item" id="btc-delta-display" style="color:#555">—</div>
-    <div class="legend-item" style="margin-left:auto;font-size:0.6rem;color:#333">Binance · 1m klines + live</div>
+    <div class="legend-item" style="margin-left:auto;font-size:0.6rem;color:#333">Coinbase · 1m klines + live</div>
   </div>
   <div id="btc-chart"></div>
 </div>
@@ -324,7 +324,7 @@
   let currentBtcPrice = null;
   let _upAsk = null;
   let _downAsk = null;
-  let _binanceWs = null;
+  let _btcWs = null;
 
   async function loadBtcChart() {
     if (!activeMarket) return;
@@ -361,24 +361,24 @@
     }
   }
 
-  let _binanceLastMsg = 0;
+  let _btcLastMsg = 0;
 
-  function connectBinanceWs() {
-    if (_binanceWs) { try { _binanceWs.close(); } catch(e){} }
+  function connectBtcWs() {
+    if (_btcWs) { try { _btcWs.close(); } catch(e){} }
     const ws = new WebSocket(`${RAILWAY_PROXY_URL.replace('https://', 'wss://')}/proxy/ws`);
-    _binanceWs = ws;
-    _binanceLastMsg = Date.now();
+    _btcWs = ws;
+    _btcLastMsg = Date.now();
     ws._watchdog = setInterval(() => {
-      if (Date.now() - _binanceLastMsg > 5000) {
-        console.warn('Binance WS hang detected — reconnecting');
+      if (Date.now() - _btcLastMsg > 5000) {
+        console.warn('BTC WS hang detected — reconnecting');
         clearInterval(ws._watchdog);
         ws.close();
       }
     }, 2000);
     ws.onmessage = (e) => {
-      _binanceLastMsg = Date.now();
+      _btcLastMsg = Date.now();
       const d = JSON.parse(e.data);
-      currentBtcPrice = parseFloat(d.p);   // aggTrade: p = price, T = trade time ms
+      currentBtcPrice = parseFloat(d.p);   // p = price, T = trade time ms
       const time = d.T / 1000;             // fractional seconds → ms precision on axis
       btcSeries.update({ time, value: currentBtcPrice });
       document.getElementById('btc-price-live').textContent =
@@ -396,7 +396,7 @@
     ws.onclose = () => {
       clearInterval(ws._watchdog);
       // Reconnect after 5s unless page is unloading
-      setTimeout(() => { if (document.visibilityState !== 'hidden') connectBinanceWs(); }, 5000);
+      setTimeout(() => { if (document.visibilityState !== 'hidden') connectBtcWs(); }, 5000);
     };
   }
 
@@ -523,7 +523,7 @@
     await loadPaperTrades();
     subscribeRealtime();
     tickCountdown();
-    connectBinanceWs();
+    connectBtcWs();
   }
 
   // ── Active Market ─────────────────────────────────────────
