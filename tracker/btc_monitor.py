@@ -19,9 +19,9 @@ from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
-BINANCE_KLINE_URL  = "https://api.binance.com/api/v3/klines"
-BINANCE_PRICE_URL  = "https://api.binance.com/api/v3/ticker/price"
-POLL_INTERVAL      = 3    # seconds between price polls
+BINANCE_KLINE_URL   = "https://api.binance.com/api/v3/klines"
+BINANCE_PRICE_URL   = "https://api.binance.com/api/v3/ticker/price"
+POLL_INTERVAL       = 3   # seconds between price polls
 DIVERGENCE_COOLDOWN = 30  # seconds between same-direction alerts
 
 
