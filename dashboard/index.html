@@ -331,7 +331,7 @@
     const startMs = activeMarket.window_ts * 1000;
     try {
       const resp = await fetch(
-        `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=${startMs}&limit=6`
+        `${RAILWAY_PROXY_URL}/proxy/klines?symbol=BTCUSDT&interval=1m&startTime=${startMs}&limit=6`
       );
       const klines = await resp.json();
       if (!klines.length) return;
@@ -365,7 +365,7 @@
 
   function connectBinanceWs() {
     if (_binanceWs) { try { _binanceWs.close(); } catch(e){} }
-    const ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@aggTrade');
+    const ws = new WebSocket(`${RAILWAY_PROXY_URL.replace('https://', 'wss://')}/proxy/ws`);
     _binanceWs = ws;
     _binanceLastMsg = Date.now();
     ws._watchdog = setInterval(() => {

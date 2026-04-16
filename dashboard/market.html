@@ -207,7 +207,7 @@
     const endMs   = startMs + 5 * 60 * 1000 + 60 * 1000; // +1m buffer
     try {
       const resp = await fetch(
-        `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=${startMs}&endTime=${endMs}&limit=10`
+        `${RAILWAY_PROXY_URL}/proxy/klines?symbol=BTCUSDT&interval=1m&startTime=${startMs}&endTime=${endMs}&limit=10`
       );
       const klines = await resp.json();
       if (!klines.length) return;

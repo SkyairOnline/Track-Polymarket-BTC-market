@@ -23,6 +23,7 @@ from price_tracker import PriceTracker
 from db import insert_market, insert_snapshot, insert_trader_trade, update_market_final, insert_btc_divergence_alert
 from trader_monitor import TraderMonitor
 from btc_monitor import BtcMonitor
+import proxy_server
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -214,6 +215,7 @@ async def main():
             transition_loop(),
             _trader_monitor.run(),
             _btc_monitor.run(),
+            proxy_server.run(_shutdown),
         )
     except asyncio.CancelledError:
         pass
