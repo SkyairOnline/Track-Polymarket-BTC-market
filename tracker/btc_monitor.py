@@ -1,7 +1,7 @@
 """
 BTC Price Monitor
 -----------------
-Polls Coinbase Exchange for live BTC/USD price every 3 seconds.
+Polls Binance for live BTC/USDT price every 3 seconds.
 On market start, fetches the 5-min kline open as the "price to beat".
 Detects divergence: BTC price direction disagrees with market YES/NO probability.
 
@@ -19,10 +19,10 @@ from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
-COINBASE_CANDLES_URL = "https://api.exchange.coinbase.com/products/BTC-USD/candles"
-COINBASE_TICKER_URL  = "https://api.exchange.coinbase.com/products/BTC-USD/ticker"
-POLL_INTERVAL        = 3    # seconds between price polls
-DIVERGENCE_COOLDOWN  = 30   # seconds between same-direction alerts
+BINANCE_KLINE_URL  = "https://api.binance.com/api/v3/klines"
+BINANCE_PRICE_URL  = "https://api.binance.com/api/v3/ticker/price"
+POLL_INTERVAL      = 3    # seconds between price polls
+DIVERGENCE_COOLDOWN = 30  # seconds between same-direction alerts
 
 
 class BtcMonitor:
@@ -96,25 +96,23 @@ class BtcMonitor:
         )
 
     async def _fetch_price_to_beat(self) -> None:
-        start_iso = datetime.fromtimestamp(self._window_ts, tz=timezone.utc).isoformat()
-        end_iso   = datetime.fromtimestamp(self._window_ts + 300, tz=timezone.utc).isoformat()
+        start_ms = self._window_ts * 1000
         async with aiohttp.ClientSession() as s:
             async with s.get(
-                COINBASE_CANDLES_URL,
-                params={"granularity": 300, "start": start_iso, "end": end_iso},
+                BINANCE_KLINE_URL,
+                params={"symbol": "BTCUSDT", "interval": "5m", "startTime": start_ms, "limit": 1},
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as r:
                 data = await r.json()
         if data:
-            # Coinbase: [[time_sec, low, high, open, close, volume], ...] newest-first
-            candle = min(data, key=lambda c: c[0])  # oldest = the 5m window open
-            self.price_to_beat = float(candle[3])   # index 3 = open
+            self.price_to_beat = float(data[0][1])  # kline open price
             log.info(f"[BTC] Price to beat (5m open): ${self.price_to_beat:,.2f}")
 
     async def _fetch_current_price(self) -> None:
         async with aiohttp.ClientSession() as s:
             async with s.get(
-                COINBASE_TICKER_URL,
+                BINANCE_PRICE_URL,
+                params={"symbol": "BTCUSDT"},
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as r:
                 data = await r.json()

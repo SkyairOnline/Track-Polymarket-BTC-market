@@ -141,7 +141,7 @@
     <div class="legend-item" id="btc-open-display" style="color:#555">Open: —</div>
     <div class="legend-item" id="btc-close-display" style="color:#555">Close: —</div>
     <div class="legend-item" id="btc-delta-display" style="color:#555">—</div>
-    <div class="legend-item" style="margin-left:auto;font-size:0.6rem;color:#2a2a2a">Coinbase · 1m klines</div>
+    <div class="legend-item" style="margin-left:auto;font-size:0.6rem;color:#2a2a2a">Binance · 1m klines</div>
   </div>
   <div id="btc-chart"></div>
 </div>
@@ -207,7 +207,7 @@
     const endMs   = startMs + 5 * 60 * 1000 + 60 * 1000; // +1m buffer
     try {
       const resp = await fetch(
-        `${RAILWAY_PROXY_URL}/proxy/klines?symbol=BTCUSDT&interval=1m&startTime=${startMs}&endTime=${endMs}&limit=10`
+        `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=${startMs}&endTime=${endMs}&limit=10`
       );
       const klines = await resp.json();
       if (!klines.length) return;
