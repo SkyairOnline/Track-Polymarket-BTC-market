@@ -89,6 +89,20 @@
     .status-bar { font-size: 0.65rem; color: #333; margin-top: 12px; }
     #status { color: #444; }
 
+    /* ── Time warning banner ── */
+    #time-warning {
+      display: none;
+      width: 100%; padding: 8px 16px; margin-bottom: 14px;
+      border-radius: 8px; border: 1px solid #f0a500;
+      background: #f0a50018; color: #f0a500;
+      font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em;
+      text-align: center;
+    }
+    #time-warning.urgent {
+      border-color: #f04040; background: #f0404018; color: #f04040;
+      animation: pulse-border 0.8s infinite;
+    }
+
     /* ── Paper Trading Widget ── */
     .trade-section { display: grid; grid-template-columns: 340px 1fr; gap: 14px; margin-bottom: 16px; }
     .trade-widget { background: #161b22; border: 1px solid #1e1e1e; border-radius: 12px; padding: 20px; }
@@ -142,6 +156,8 @@
   <span id="countdown-header"></span>
   <span id="divergence-banner"></span>
 </div>
+
+<div id="time-warning"></div>
 
 <!-- BTC Price Chart -->
 <div id="btc-chart-wrap">
@@ -527,10 +543,23 @@
   }
 
   // ── Active Market ─────────────────────────────────────────
-  async function loadActiveMarket() {
+  async function loadActiveMarket(attempt = 0) {
     const { data } = await db.from('markets').select('*').eq('active', true)
       .order('created_at', { ascending: false }).limit(1);
-    if (!data?.length) { setStatus('No active market'); return; }
+
+    const market = data?.[0];
+    const isStale = market && new Date(market.end_time) <= new Date();
+
+    if (!market || isStale) {
+      // Either no active market yet, or DB still holds the expired one
+      if (attempt < 15) {
+        setStatus(`Waiting for next market... (${attempt + 1})`);
+        setTimeout(() => loadActiveMarket(attempt + 1), 2000);
+      } else {
+        setStatus('No active market');
+      }
+      return;
+    }
     const m = data[0];
     activeMarket = m;
     document.getElementById('market-slug').textContent = m.slug;
@@ -800,7 +829,24 @@
       if (!activeMarket) return;
       const secs = Math.max(0, Math.round((new Date(activeMarket.end_time) - Date.now()) / 1000));
       const m = Math.floor(secs / 60), s = secs % 60;
-      document.getElementById('countdown-header').textContent = `${m}:${String(s).padStart(2,'0')}`;
+      const timeStr = `${m}:${String(s).padStart(2,'0')}`;
+      document.getElementById('countdown-header').textContent = timeStr;
+
+      const banner = document.getElementById('time-warning');
+      if (secs === 0) {
+        banner.style.display = 'none';
+      } else if (secs <= 60) {
+        banner.className = 'urgent';
+        banner.style.display = 'block';
+        banner.textContent = `🚨 MARKET RESOLVES IN ${timeStr} — 1 MINUTE LEFT`;
+      } else if (secs <= 120) {
+        banner.className = '';
+        banner.style.display = 'block';
+        banner.textContent = `⚠️ MARKET RESOLVES IN ${timeStr} — 2 MINUTES LEFT`;
+      } else {
+        banner.style.display = 'none';
+      }
+
       if (secs === 0) setTimeout(() => { loadActiveMarket(); loadHistory(); }, 6000);
     }, 1000);
   }
