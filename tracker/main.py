@@ -44,6 +44,18 @@ _shutdown = asyncio.Event()
 _last_up_ask: float = None
 _last_down_ask: float = None
 
+# One-shot flags: prevent repeated alarms for the same market
+_notified_2min: bool = False
+_notified_1min: bool = False
+
+
+async def _fire_alarm(msg: str):
+    await asyncio.create_subprocess_exec("afplay", "/System/Library/Sounds/Funk.aiff")
+    await asyncio.create_subprocess_exec(
+        "osascript", "-e",
+        f'display notification "{msg}" with title "Polymarket Alert"',
+    )
+
 
 async def on_price(up: dict, down: dict, source: str):
     """
@@ -79,13 +91,25 @@ async def on_price(up: dict, down: dict, source: str):
 
 
 async def transition_loop():
-    global _market, _last_up_ask, _last_down_ask
+    global _market, _last_up_ask, _last_down_ask, _notified_2min, _notified_1min
 
     while not _shutdown.is_set():
         try:
             end = _parse_end_time(_market.end_time)
             now = datetime.now(timezone.utc)
             secs_left = (end - now).total_seconds()
+
+            if not _notified_2min and secs_left <= 120:
+                _notified_2min = True
+                await _fire_alarm(f"Market {_market.slug} resolves in ~2 minutes!")
+                log.info(f"ALARM: market resolves in {secs_left:.0f}s — 2min notification sent")
+
+            if not _notified_1min and secs_left <= 60:
+                _notified_1min = True
+                await _fire_alarm(f"Market {_market.slug} resolves in ~1 minute!")
+                await asyncio.sleep(1.5)
+                await _fire_alarm(f"Market {_market.slug} resolves in ~1 minute!")
+                log.info(f"ALARM: market resolves in {secs_left:.0f}s — 1min double notification sent")
 
             if secs_left <= TRANSITION_LEAD_TIME:
                 log.info(f"Market ending in {secs_left:.0f}s — fetching next market...")
@@ -108,6 +132,7 @@ async def transition_loop():
 
                 # Switch to next market
                 _last_up_ask = _last_down_ask = None
+                _notified_2min = _notified_1min = False
                 insert_market(next_market)
                 await _tracker.switch_market(next_market.up_token_id, next_market.down_token_id)
                 _trader_monitor.set_market(next_market.condition_id, next_market.slug)
