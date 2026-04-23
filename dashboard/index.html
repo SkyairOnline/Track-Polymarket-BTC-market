@@ -103,6 +103,16 @@
       animation: pulse-border 0.8s infinite;
     }
 
+    /* ── Price move alert banner ── */
+    #price-move-alert {
+      display: none;
+      width: 100%; padding: 8px 16px; margin-bottom: 14px;
+      border-radius: 8px; border: 1px solid #ff4fff;
+      background: #ff4fff18; color: #ff4fff;
+      font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em;
+      text-align: center; animation: pulse-border 0.8s infinite;
+    }
+
     /* ── Paper Trading Widget ── */
     .trade-section { display: grid; grid-template-columns: 340px 1fr; gap: 14px; margin-bottom: 16px; }
     .trade-widget { background: #161b22; border: 1px solid #1e1e1e; border-radius: 12px; padding: 20px; }
@@ -158,6 +168,7 @@
 </div>
 
 <div id="time-warning"></div>
+<div id="price-move-alert"></div>
 
 <!-- BTC Price Chart -->
 <div id="btc-chart-wrap">
@@ -336,6 +347,7 @@
   });
 
   let btcPriceToBeat = null;
+  let _secsLeft = null;
   let btcPriceTooBeatLine = null;
   let currentBtcPrice = null;
   let _upAsk = null;
@@ -453,6 +465,7 @@
       noBox.classList.remove('warn');
       yesBox.classList.remove('warn');
     }
+    checkPriceMoveAlert();
   }
 
   // ── Chart setup ───────────────────────────────────────────
@@ -828,9 +841,11 @@
     setInterval(() => {
       if (!activeMarket) return;
       const secs = Math.max(0, Math.round((new Date(activeMarket.end_time) - Date.now()) / 1000));
+      _secsLeft = secs;
       const m = Math.floor(secs / 60), s = secs % 60;
       const timeStr = `${m}:${String(s).padStart(2,'0')}`;
       document.getElementById('countdown-header').textContent = timeStr;
+      checkPriceMoveAlert();
 
       const banner = document.getElementById('time-warning');
       if (secs === 0) {
@@ -849,6 +864,46 @@
 
       if (secs === 0) setTimeout(() => { loadActiveMarket(); loadHistory(); }, 6000);
     }, 1000);
+  }
+
+  // ── Price move alert ──────────────────────────────────────
+  let _priceMoveAlertActive = false;
+  function checkPriceMoveAlert() {
+    const el = document.getElementById('price-move-alert');
+    if (btcPriceToBeat === null || currentBtcPrice === null || _secsLeft === null) {
+      el.style.display = 'none'; return;
+    }
+    const delta = Math.abs(currentBtcPrice - btcPriceToBeat);
+    const dir = currentBtcPrice >= btcPriceToBeat ? '↑' : '↓';
+    if (delta >= 75 && _secsLeft < delta) {
+      el.style.display = 'block';
+      el.textContent = `🚨 BTC ${dir}$${delta.toFixed(0)} FROM OPEN — COUNTDOWN ${_secsLeft}s < PRICE MOVE`;
+      if (!_priceMoveAlertActive) {
+        _priceMoveAlertActive = true;
+        playAlertSound();
+      }
+    } else {
+      el.style.display = 'none';
+      _priceMoveAlertActive = false;
+    }
+  }
+
+  function playAlertSound() {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const beep = (freq, start, duration) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.4, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + duration);
+    };
+    beep(880, 0.0, 0.18);
+    beep(880, 0.2, 0.18);
+    beep(1100, 0.4, 0.32);
   }
 
   // ── Flash alert ───────────────────────────────────────────
